@@ -1,0 +1,318 @@
+/* ============================================================
+   News Repository — CRUD + dedup + status แยก (Phase 5)
+   ------------------------------------------------------------
+   กฎสำคัญ (QC):
+   - original_content ไม่ UNIQUE
+   - duplicate detection ผ่าน source_url + duplicate_hash (ไม่ใช่ DB constraint)
+   - dedup check + insert ใน transaction เดียวกัน (กัน race condition)
+   - validation_status แยกจาก publish_status ตลอด
+   - ทุก query ใช้ parameterized (? placeholders) เท่านั้น
+   ============================================================ */
+
+import { logger } from "../utils/logger.js";
+import { newsToRow, rowToNews } from "./newsMapper.js";
+import { normalizeUrlAlias } from "../utils/hash.js";
+
+const log = logger.make("repo");
+
+// INSERT column list (idempotent via ON CONFLICT DO NOTHING)
+const INSERT_COLUMNS = [
+  "id", "source", "source_url", "original_title", "original_author",
+  "original_published_at", "category", "original_content",
+  "thai_title", "thai_summary", "thai_content", "market_factors",
+  "key_facts", "mentioned_numbers", "credit",
+  "image_url", "image_source", "image_author", "image_author_url",
+  "image_license", "image_source_url", "image_search_keywords",
+  "image_status", "image_review_required",
+  "validation_status", "publish_status", "ai_confidence", "ai_validation",
+  "duplicate_hash", "source_policy", "source_policy_reason",
+  "topics", "section", "teaser", "is_external", "pipeline_note",
+  "created_at", "updated_at", "validated_at", "published_at",
+];
+const INSERT_PLACEHOLDERS = INSERT_COLUMNS.map(() => "?").join(", ");
+
+/**
+ * สร้าง repository bound กับ db instance
+ * @param {Database} db
+ */
+export function createNewsRepository(db) {
+  // ---- INSERT ----
+  const insertStmt = db.prepare(
+    `INSERT INTO news (${INSERT_COLUMNS.join(", ")}) ` +
+      `VALUES (${INSERT_PLACEHOLDERS}) ` +
+      `ON CONFLICT(id) DO NOTHING`
+  );
+
+  /** บันทึกข่าวใหม่ (ถ้า id ซ้ำ → ข้าม, คืน inserted=false) */
+  function insertNews(news) {
+    const row = newsToRow(news);
+    const params = INSERT_COLUMNS.map((c) => row[c]);
+    const info = insertStmt.run(...params);
+    const inserted = info.changes > 0;
+    log.debug(`insertNews id=${news.id} inserted=${inserted}`);
+    return { inserted, id: news.id };
+  }
+
+  // ---- QUERY helpers ----
+  const getByIdStmt = db.prepare("SELECT * FROM news WHERE id = ?");
+  const getBySourceUrlStmt = db.prepare(
+    "SELECT * FROM news WHERE source_url = ? LIMIT 1"
+  );
+  const getByDupHashStmt = db.prepare(
+    "SELECT * FROM news WHERE duplicate_hash = ? LIMIT 1"
+  );
+  const getPublishedByIdStmt = db.prepare(
+    "SELECT * FROM news WHERE id = ? AND publish_status = 'published' LIMIT 1"
+  );
+
+  function getById(id) {
+    return rowToNews(getByIdStmt.get(id));
+  }
+  function getBySourceUrl(sourceUrl) {
+    if (!sourceUrl) return null;
+    return rowToNews(getBySourceUrlStmt.get(sourceUrl));
+  }
+  function getByDuplicateHash(hash) {
+    if (!hash) return null;
+    return rowToNews(getByDupHashStmt.get(hash));
+  }
+  function getPublishedById(id) {
+    return rowToNews(getPublishedByIdStmt.get(id));
+  }
+
+  /**
+   * ตรวจข่าวซ้ำด้วย sourceUrl + duplicateHash
+   * (ไม่ใช้ UNIQUE constraint — ตามกฎ QC)
+   * @returns { { isDuplicate: boolean, reason?: string, matchId?: string, match?: object } }
+   */
+  function findDuplicate(news) {
+    // 1) source_url match (normalize ก่อน)
+    if (news.sourceUrl) {
+      const target = normalizeUrlAlias(news.sourceUrl);
+      // scan rows ที่มี source_url (index ช่วย) — compare normalized
+      const row = getBySourceUrlStmt.get(news.sourceUrl);
+      if (row) {
+        return {
+          isDuplicate: true,
+          reason: "same_source_url",
+          matchId: row.id,
+          match: rowToNews(row),
+        };
+      }
+      // ลอง normalized compare (กัน trailing slash / scheme ต่าง)
+      const all = db
+        .prepare("SELECT id, source_url FROM news WHERE source_url IS NOT NULL")
+        .all();
+      for (const r of all) {
+        if (normalizeUrlAlias(r.source_url) === target) {
+          return {
+            isDuplicate: true,
+            reason: "same_source_url_normalized",
+            matchId: r.id,
+          };
+        }
+      }
+    }
+    // 2) duplicate_hash match
+    if (news.duplicateHash) {
+      const row = getByDupHashStmt.get(news.duplicateHash);
+      if (row) {
+        return {
+          isDuplicate: true,
+          reason: "same_duplicate_hash",
+          matchId: row.id,
+          match: rowToNews(row),
+        };
+      }
+    }
+    return { isDuplicate: false };
+  }
+
+  /**
+   * บันทึกข่าวใน transaction เดียวกับ dedup check
+   * (กัน race: ระหว่าง check → insert ไม่มีโอกาส insert ซ้ำ)
+   *
+   * @returns { { saved: boolean, duplicate: boolean, reason?: string, id: string } }
+   */
+  function saveWithDedup(news) {
+    const tx = db.transaction(() => {
+      const dup = findDuplicate(news);
+      if (dup.isDuplicate) {
+        return { saved: false, duplicate: true, reason: dup.reason, id: news.id, matchId: dup.matchId };
+      }
+      const { inserted } = insertNews(news);
+      // inserted=false เมื่อ id PK ซ้ำ (fallback dedup)
+      return {
+        saved: inserted,
+        duplicate: !inserted,
+        reason: inserted ? null : "same_id_pk",
+        id: news.id,
+      };
+    });
+    return tx();
+  }
+
+  // ---- STATUS UPDATES (แยก validation/publish) ----
+
+  /**
+   * อัปเดต validation_status + validatedAt (ถ้า status=validated)
+   * ไม่แตะ publish_status
+   */
+  const updateValidationStmt = db.prepare(
+    "UPDATE news SET validation_status = ?, validated_at = ?, updated_at = ?, pipeline_note = ? WHERE id = ?"
+  );
+  function updateValidationStatus(id, status, note = null) {
+    const validatedAt =
+      status === "validated" ? new Date().toISOString() : null;
+    const now = new Date().toISOString();
+    const info = updateValidationStmt.run(status, validatedAt, now, note, id);
+    return info.changes > 0;
+  }
+
+  /**
+   * อัปเดต publish_status + publishedAt
+   * ใช้สำหรับ explicit publish action (Phase ถัดไป — Phase 5 ไม่ auto publish)
+   */
+  const updatePublishStmt = db.prepare(
+    `UPDATE news
+     SET publish_status = ?, published_at = ?, updated_at = ?
+     WHERE id = ?
+       AND (? <> 'published' OR validation_status = 'validated')`
+  );
+  function updatePublishStatus(id, status) {
+    const publishedAt =
+      status === "published" ? new Date().toISOString() : null;
+    const now = new Date().toISOString();
+    const info = updatePublishStmt.run(status, publishedAt, now, id, status);
+    return info.changes > 0;
+  }
+
+  /**
+   * อัปเดต image metadata (หลัง findImageForNews)
+   * ไม่แตะ validation/publish status
+   */
+  const updateImageStmt = db.prepare(
+    `UPDATE news SET
+      image_url = ?, image_source = ?, image_author = ?,
+      image_author_url = ?, image_license = ?, image_source_url = ?,
+      image_search_keywords = ?, image_status = ?, image_review_required = ?,
+      updated_at = ?
+    WHERE id = ?`
+  );
+  function updateImage(id, imageMeta) {
+    const now = new Date().toISOString();
+    const info = updateImageStmt.run(
+      imageMeta.imageUrl ?? null,
+      imageMeta.imageSource ?? null,
+      imageMeta.imageAuthor ?? null,
+      imageMeta.imageAuthorUrl ?? null,
+      imageMeta.imageLicense ?? null,
+      imageMeta.imageSourceUrl ?? null,
+      JSON.stringify(imageMeta.imageSearchKeywords || []),
+      imageMeta.imageStatus ?? null,
+      imageMeta.imageReviewRequired ? 1 : 0,
+      now,
+      id
+    );
+    return info.changes > 0;
+  }
+
+  /** มี image metadata ที่ใช้ได้แล้ว (กันเรียก Pexels ซ้ำ) */
+  const hasUsableImageStmt = db.prepare(
+    "SELECT image_url FROM news WHERE id = ?"
+  );
+  function hasUsableImage(id) {
+    const r = hasUsableImageStmt.get(id);
+    return !!(r && r.image_url);
+  }
+
+  // ---- LIST / COUNT ----
+  function listByStatus(status, limit = 100) {
+    const rows = db
+      .prepare(
+        "SELECT * FROM news WHERE validation_status = ? ORDER BY created_at DESC LIMIT ?"
+      )
+      .all(status, limit);
+    return rows.map(rowToNews);
+  }
+  function listByPublishStatus(status, limit = 100) {
+    const rows = db
+      .prepare(
+        "SELECT * FROM news WHERE publish_status = ? ORDER BY created_at DESC LIMIT ?"
+      )
+      .all(status, limit);
+    return rows.map(rowToNews);
+  }
+  function listPublished(limit = 100, offset = 0) {
+    const rows = db
+      .prepare(
+        `SELECT * FROM news
+         WHERE publish_status = 'published'
+           AND validation_status = 'validated'
+         ORDER BY COALESCE(published_at, original_published_at, created_at) DESC
+         LIMIT ? OFFSET ?`
+      )
+      .all(limit, offset);
+    return rows.map(rowToNews);
+  }
+  function listAll(limit = 100, offset = 0) {
+    const rows = db
+      .prepare("SELECT * FROM news ORDER BY created_at DESC LIMIT ? OFFSET ?")
+      .all(limit, offset);
+    return rows.map(rowToNews);
+  }
+
+  function countByStatus() {
+    const rows = db
+      .prepare(
+        "SELECT validation_status AS status, COUNT(*) AS cnt FROM news GROUP BY validation_status"
+      )
+      .all();
+    const out = {};
+    for (const r of rows) out[r.status] = r.cnt;
+    return out;
+  }
+  function countAll() {
+    return db.prepare("SELECT COUNT(*) AS n FROM news").get().n;
+  }
+  function countPublished() {
+    return db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM news WHERE publish_status = 'published' AND validation_status = 'validated'"
+      )
+      .get().n;
+  }
+
+  // ---- สำหรับ test/debug ----
+  function clearAll() {
+    db.prepare("DELETE FROM news").run();
+  }
+
+  return {
+    // insert
+    insertNews,
+    saveWithDedup,
+    findDuplicate,
+    // query
+    getById,
+    getBySourceUrl,
+    getByDuplicateHash,
+    getPublishedById,
+    listByStatus,
+    listByPublishStatus,
+    listPublished,
+    listAll,
+    countByStatus,
+    countAll,
+    countPublished,
+    // updates (status แยก)
+    updateValidationStatus,
+    updatePublishStatus,
+    updateImage,
+    hasUsableImage,
+    // debug
+    clearAll,
+  };
+}
+
+export { INSERT_COLUMNS };

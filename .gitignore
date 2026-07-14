@@ -1,0 +1,57 @@
+# ============================================================
+# TraderToolsTH — .gitignore
+# สำคัญ: ป้องกัน API key, ข่าวดิบ, log, และไฟล์ที่ไม่ควรติด git
+# ============================================================
+
+# ---- Secrets / Env (ห้ามติด git เด็ดขาด) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials.json
+
+# ---- Backend runtime artifacts ----
+backend/node_modules/
+backend/dist/
+backend/build/
+backend/coverage/
+
+# ---- News data store & logs (ข่าวดิบ / DB / log ไม่เก็บใน git) ----
+backend/data/
+backend/data/**
+backend/logs/
+backend/logs/**
+backend/storage/
+backend/storage/**
+backend/tmp/
+backend/tmp/**
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# ---- Scraper artifacts (cached HTML ไม่เก็บ) ----
+**/_kitco_*.html
+**/_kitco_*.json
+**/_nextdata.json
+**/scrape-cache/
+
+# ---- OS / Editor ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+.zcode/
+*.swp
+*.swo
+*~
+
+# ---- Dependencies (กันซ้ำในกรณี root install) ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

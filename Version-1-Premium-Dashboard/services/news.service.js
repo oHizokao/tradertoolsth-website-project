@@ -1,13 +1,12 @@
 /* ============================================================
    Service Layer — News Service
-   ปัจจุบันใช้ Mock Data จาก data/news.js
-   จุดที่รอเชื่อมระบบจริง: ฟังก์ชัน fetchNews() / getArticle()
+   ใช้ Live API จาก /api/news และ fallback เป็นข้อมูลตัวอย่างเมื่อ server ใช้งานไม่ได้
    ============================================================ */
 
 window.TT = window.TT || {};
 
 TT.NewsService = (function () {
-  const API_ENDPOINT = null; // TODO: "/api/news"
+  const API_ENDPOINT = "/api/news";
 
   function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -27,22 +26,32 @@ TT.NewsService = (function () {
     }
 
     try {
-      const res = await fetch(
-        API_ENDPOINT + "?category=" + encodeURIComponent(category)
-      );
+      const params = new URLSearchParams({ category });
+      if (limit) params.set("limit", String(limit));
+      const res = await fetch(API_ENDPOINT + "?" + params.toString());
       if (!res.ok) throw new Error("HTTP " + res.status);
-      let list = await res.json();
-      if (limit) list = list.slice(0, limit);
-      return list;
+      return await res.json();
     } catch (err) {
-      console.error("[NewsService] fetch error:", err);
-      throw err;
+      console.warn("[NewsService] API unavailable, using local fallback:", err);
+      let list = (TT.news || []).slice().sort(
+        (a, b) => new Date(b.publishedAt) - new Date(a.publishedAt)
+      );
+      if (category && category !== "all") list = list.filter((n) => n.category === category);
+      return limit ? list.slice(0, limit) : list;
     }
   }
 
   async function getBySlug(slug) {
-    await delay(100);
-    return (TT.news || []).find((n) => n.slug === slug) || null;
+    try {
+      const res = await fetch(API_ENDPOINT + "/" + encodeURIComponent(slug));
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (err) {
+      console.warn("[NewsService] detail API unavailable, using local fallback:", err);
+      await delay(100);
+      return (TT.news || []).find((n) => n.slug === slug) || null;
+    }
   }
 
   return {

@@ -148,7 +148,7 @@ TT.layout = (function () {
           <span>© ${year} ${TT.h.esc(
       s.name
     )} — สงวนลิขสิทธิ์</span>
-          <span>Mock Data • ยังไม่ได้เชื่อมระบบจริง</span>
+          <span>ระบบข่าวเชื่อม API แล้ว • ส่วนอื่นเป็นข้อมูลตัวอย่าง</span>
         </div>
       </div>
     </footer>`;
