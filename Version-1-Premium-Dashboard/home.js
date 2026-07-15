@@ -284,7 +284,8 @@
     if (!el) return;
     TT.h.loading(el, 3);
     try {
-      const list = await TT.NewsService.fetchNews("all", 3);
+      const page = await TT.NewsService.fetchNews("all", { limit: 3, offset: 0 });
+      const list = (page && page.items) || [];
       if (!list.length) return TT.h.empty(el);
       el.innerHTML = list
         .map(
@@ -297,7 +298,7 @@
             <div style="flex:1;min-width:0">
               <span class="badge badge--${n.category === "gold" ? "gold" : "accent"}" style="font-size:0.62rem;margin-bottom:4px">${n.category === "gold" ? "ทองคำ" : "Forex"}</span>
               <div style="font-family:var(--font-display);font-weight:600;font-size:var(--fs-xs);color:var(--text-primary);line-height:1.3;margin-bottom:2px">${h.esc(h.truncate(n.title, 55))}</div>
-              <div class="mono text-muted" style="font-size:var(--fs-xs)">${h.formatTime(n.publishedAt, { timeOnly: true })}</div>
+              <div class="mono text-muted" style="font-size:var(--fs-xs)">${h.formatBangkok(n.sourcePublishedAt || n.publishedAt, { timeOnly: true })}</div>
             </div>
           </a>`
         )

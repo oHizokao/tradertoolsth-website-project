@@ -17,6 +17,7 @@ import { mkdirSync } from "node:fs";
 
 import { config } from "../config/env.js";
 import { logger } from "../utils/logger.js";
+import { toUtcIso } from "../utils/date.js";
 
 const log = logger.make("db");
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -90,7 +91,130 @@ function runMigrationsOn(db) {
   db.prepare(
     "INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)"
   ).run(1, new Date().toISOString());
+  // Phase 8: idempotent ALTER + validate migration
+  applyPhase8Migration(db);
+  // Phase 9: bootstrap auto pilot tables + auto-release crash lock
+  applyPhase9Migration(db);
   log.debug("migrations applied");
+}
+
+/**
+ * Phase 8 migration — เพิ่มคอลัมน์ source_published_at + migrate ข้อมูลเดิม
+ *
+ * SQLite ไม่รองรับ ADD COLUMN IF NOT EXISTS → ตรวจ PRAGMA table_info ก่อน
+ *
+ * กฎ QC (ห้าม fallback / ห้ามเดา):
+ *   - migrate จาก original_published_at เฉพาะค่าที่ parse เป็น ISO UTC ได้จริง
+ *   - ค่าที่ parse ไม่ได้ → เก็บ source_published_at = NULL
+ *     และตั้ง validation_status = 'needs_review' (ไม่ให้ปรากฏใน public listing)
+ *
+ * การแยกระดับ idempotency (QC4):
+ *   - column + index: ตรวจและสร้างเสมอทุกครั้ง (กันกรณี DB มี id=2 แต่
+ *     column/index หายไป เช่น restore บางส่วน) — ไม่ข้ามแม้ id=2 มีอยู่
+ *   - data migration (copy original_published_at): ทำครั้งเดียวตาม id=2
+ *     เพื่อกันการทำซ้ำ
+ */
+function applyPhase8Migration(db) {
+  // 1) column + index — ตรวจและสร้างเสมอ (idempotent, ไม่ขึ้นกับ id=2)
+  //    กันกรณี DB มี schema_migrations id=2 แต่ column/index หายไป
+  const cols = db.prepare("PRAGMA table_info(news)").all();
+  const hasCol = cols.some((c) => c.name === "source_published_at");
+  if (!hasCol) {
+    db.exec("ALTER TABLE news ADD COLUMN source_published_at TEXT");
+    log.info("phase8: added column source_published_at");
+  }
+  // สร้าง index สำหรับเรียงข่าวตาม sourcePublishedAt (CREATE IF NOT EXISTS idempotent)
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_news_source_published_at ON news(source_published_at)"
+  );
+
+  // 2) data migration — ทำครั้งเดียวตาม schema_migrations id=2
+  const dataMigrated = db
+    .prepare("SELECT id FROM schema_migrations WHERE id = ?")
+    .get(2);
+  if (dataMigrated) return; // data migration ทำไปแล้ว — แต่ column/index ยังตรวจเสมอข้างต้น
+
+  const rows = db
+    .prepare(
+      "SELECT id, original_published_at FROM news " +
+        "WHERE source_published_at IS NULL " +
+        "AND original_published_at IS NOT NULL " +
+        "AND original_published_at != ''"
+    )
+    .all();
+
+  let migrated = 0;
+  let needsReview = 0;
+  const updateSourceStmt = db.prepare(
+    "UPDATE news SET source_published_at = ? WHERE id = ?"
+  );
+  const markNeedsReviewStmt = db.prepare(
+    "UPDATE news SET source_published_at = NULL, validation_status = 'needs_review' " +
+      "WHERE id = ?"
+  );
+
+  for (const r of rows) {
+    const iso = toUtcIso(r.original_published_at);
+    if (iso) {
+      updateSourceStmt.run(iso, r.id);
+      migrated++;
+    } else {
+      // parse ไม่ได้ → NULL + needs_review (ห้ามเดา ห้าม fallback)
+      markNeedsReviewStmt.run(r.id);
+      needsReview++;
+    }
+  }
+
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)"
+  ).run(2, new Date().toISOString());
+
+  if (rows.length > 0) {
+    log.info(
+      `phase8: migrated ${migrated} rows, ${needsReview} sent to needs_review`
+    );
+  }
+}
+
+/**
+ * Phase 9 migration — bootstrap auto pilot tables + auto-release crash lock
+ *
+ * tables สร้างผ่าน migration.sql (CREATE IF NOT EXISTS) ทำเสมอ
+ * ส่วนนี้ทำ 2 อย่าง (run-once ตาม schema_migrations id=3):
+ *   1. bootstrap singleton row ของ auto_pilot_settings (ถ้ายังไม่มี)
+ *   2. กัน lock ค้าง: ถ้า status='running' ตอนเปิด (process crash ระหว่างรอบ)
+ *      → ตั้ง 'stopped_error' + release lock_token + last_error
+ *      (ทำทุกครั้งตอนเปิด ไม่ใช่แค่ id=3 — safety)
+ */
+function applyPhase9Migration(db) {
+  // bootstrap singleton row (idempotent INSERT OR IGNORE)
+  db.prepare(
+    "INSERT OR IGNORE INTO auto_pilot_settings " +
+      "(id, enabled, status, max_per_run, emergency_stop, updated_at) " +
+      "VALUES ('singleton', 0, 'off', 3, 0, ?)"
+  ).run(new Date().toISOString());
+
+  // auto-release crash lock — ทำเสมอทุกครั้งตอนเปิด (safety, ไม่ใช่ id=3 only)
+  // ถ้า status='running' แสดงว่า process ก่อนหน้า crash ระหว่างรอบ → ปล่อย lock
+  const row = db
+    .prepare("SELECT status, lock_token FROM auto_pilot_settings WHERE id = 'singleton'")
+    .get();
+  if (row && row.status === "running") {
+    db.prepare(
+      "UPDATE auto_pilot_settings " +
+        "SET status = 'stopped_error', lock_token = NULL, " +
+        "last_error = 'process_restart_during_run', updated_at = ? " +
+        "WHERE id = 'singleton'"
+    ).run(new Date().toISOString());
+    log.warn(
+      "phase9: auto-released crash lock (status was 'running' on startup) → stopped_error"
+    );
+  }
+
+  // บันทึก migration v3 (run-once marker)
+  db.prepare(
+    "INSERT OR IGNORE INTO schema_migrations (id, applied_at) VALUES (?, ?)"
+  ).run(3, new Date().toISOString());
 }
 
 /**

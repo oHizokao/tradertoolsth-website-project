@@ -107,7 +107,7 @@ TT.cards = (function () {
       </h3>
       <p class="news-card__excerpt">${h.esc(n.excerpt)}</p>
       <div class="news-card__meta">
-        <span>${h.formatTime(n.publishedAt)}</span>
+        <span>${h.formatBangkok(n.sourcePublishedAt || n.publishedAt, { prefix: "" })}</span>
         <a href="news-detail.html?slug=${encodeURIComponent(
           n.slug
         )}" class="section-link">อ่านต่อ</a>

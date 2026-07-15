@@ -22,7 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createTestDb, __resolveDbPath } from "../src/store/db.js";
+import { createTestDb, __resolveDbPath, __runMigrationsOn } from "../src/store/db.js";
 import { createNewsRepository } from "../src/store/newsRepository.js";
 import { newsToRow, rowToNews } from "../src/store/newsMapper.js";
 import { processAndSaveNews } from "../src/pipeline/newsPipeline.js";
@@ -386,19 +386,17 @@ describe("6. restart persistence", () => {
       tmpdir(),
       `p5-${Date.now()}.db`
     );
-    const migrationSql = readFileSync(
-      join(__dirname, "..", "src", "store", "migration.sql"),
-      "utf8"
-    );
+    // ใช้ runMigrationsOn (รวม Phase 8 ALTER source_published_at) แทน exec(migrationSql)
+    // เพราะ insertNews อ้างคอลัมน์ source_published_at ที่ Phase 8 เพิ่ม
     // session 1
     const dbA = new Database(tmpFile);
-    dbA.exec(migrationSql);
+    __runMigrationsOn(dbA);
     const repoA = createNewsRepository(dbA);
     repoA.insertNews(makeNews({ id: "persist-1", validationStatus: "validated", publishStatus: "processing" }));
     dbA.close();
     // session 2
     const dbB = new Database(tmpFile);
-    dbB.exec(migrationSql);
+    __runMigrationsOn(dbB);
     const repoB = createNewsRepository(dbB);
     const got = repoB.getById("persist-1");
     assert.ok(got);

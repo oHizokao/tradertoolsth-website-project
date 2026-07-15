@@ -38,6 +38,9 @@ export function createEmptyNews() {
     originalTitle: "",
     originalAuthor: "",
     originalPublishedAt: null,
+    // Phase 8: เวลาเผยแพร่จริงจาก Kitco (ISO UTC) — ตัวเรียงหลัก
+    // ห้าม fallback ไป createdAt/publishedAt หาก null
+    sourcePublishedAt: null,
     category: "",
     originalContent: "",
     // thai (เรียบเรียงใหม่ — Phase 3)
@@ -75,4 +78,6 @@ export const REQUIRED_FOR_PUBLISH = [
   "originalTitle",
   "originalContent",
   "originalPublishedAt",
+  // Phase 8: ต้องมีเวลาต้นทางจึงจะเผยแพร่ได้ (ห้ามใช้ createdAt/publishedAt แทน)
+  "sourcePublishedAt",
 ];

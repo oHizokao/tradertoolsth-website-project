@@ -56,6 +56,113 @@ async function readJson(req, maxBytes = 32_768) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+/* ============================================================
+   Phase 10 — Admin Auto Pilot auth helpers (cookie + CSRF)
+   ------------------------------------------------------------
+   - cookie auth: admin_session HttpOnly cookie (timing-safe)
+   - CSRF/Origin: ตรวจ Origin/Referer สำหรับ state-changing requests
+     (ห้ามพึ่ง SameSite cookie อย่างเดียว)
+   - ไม่มี secret ใน helper เหล่านี้ (token มาจาก caller)
+   ============================================================ */
+
+const ADMIN_COOKIE_NAME = "admin_session";
+
+/** parse Cookie header → Map<string,string> */
+function parseCookies(req) {
+  const out = new Map();
+  const raw = req.headers.cookie || "";
+  for (const part of raw.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (k) out.set(k, v);
+  }
+  return out;
+}
+
+/** ตรวจ auth ผ่าน admin_session cookie (timing-safe compare กับ expectedToken) */
+function isAuthorizedByCookie(req, expectedToken) {
+  if (!expectedToken) return false;
+  const cookies = parseCookies(req);
+  const val = cookies.get(ADMIN_COOKIE_NAME);
+  if (!val) return false;
+  try {
+    const a = Buffer.from(val);
+    const b = Buffer.from(expectedToken);
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/** auth ผ่าน cookie OR Bearer (ใดอย่างถูก็ผ่าน) */
+function isAuthorizedAny(req, expectedToken) {
+  return isAuthorized(req, expectedToken) || isAuthorizedByCookie(req, expectedToken);
+}
+
+/**
+ * ตรวจ Origin/Referer สำหรับ CSRF protection (state-changing requests)
+ * - อ่าน Origin ก่อน; ถ้าไม่มี fallback ไป Referer (ตัด path เอาแค่ origin)
+ * - ผ่านถ้า origin ตรงกับ host ของ req เอง หรืออยู่ใน allowlist
+ * @returns {boolean}
+ */
+function isOriginAllowed(req, allowedOrigins = []) {
+  let origin = req.headers.origin;
+  if (!origin) {
+    const referer = req.headers.referer || "";
+    if (referer) {
+      try {
+        const u = new URL(referer);
+        origin = `${u.protocol}//${u.host}`;
+      } catch {
+        origin = "";
+      }
+    }
+  }
+  if (!origin) return false; // ไม่มี Origin/Referer → บล็อก (CSRF defense)
+  // allowlist ชนะ (กรณี deploy หลาย origin)
+  if (Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
+    return allowedOrigins.includes(origin);
+  }
+  // default: ต้องตรงกับ host ของ req เอง
+  const host = req.headers.host;
+  if (!host) return false;
+  // สร้าง self origin จาก protocol + host
+  // protocol detection: trust x-forwarded-proto (reverse proxy) หรือ default http
+  const proto = (req.headers["x-forwarded-proto"] || "http").split(",")[0].trim();
+  const selfOrigin = `${proto}://${host}`;
+  return origin === selfOrigin;
+}
+
+/** สร้าง Set-Cookie value สำหรับ admin_session */
+function buildAdminCookie(token, { secure, maxAge = 28800 }) {
+  const parts = [
+    `${ADMIN_COOKIE_NAME}=${token}`,
+    "HttpOnly",
+    "Path=/api/admin/auto-pilot",
+    `Max-Age=${maxAge}`,
+    "SameSite=Strict",
+  ];
+  if (secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/** สร้าง Set-Cookie สำหรับ clear cookie (logout) */
+function buildClearAdminCookie({ secure }) {
+  const parts = [`${ADMIN_COOKIE_NAME}=`, "HttpOnly", "Path=/api/admin/auto-pilot", "Max-Age=0", "SameSite=Strict"];
+  if (secure) parts.push("Secure");
+  return parts.join("; ");
+}
+
+/** detect ว่า request มาผ่าน HTTPS (เพื่อตั้ง Secure flag) */
+function isSecureRequest(req) {
+  const proto = (req.headers["x-forwarded-proto"] || "").split(",")[0].trim().toLowerCase();
+  if (proto === "https") return true;
+  // socket encrypted (direct TLS)
+  return !!(req.socket && req.socket.encrypted);
+}
+
 function resolveStaticPath(pathname, projectRoot, siteVersion) {
   let base;
   let relative;
@@ -89,6 +196,10 @@ function resolveStaticPath(pathname, projectRoot, siteVersion) {
   } else if (pathname === "/v2" || pathname === "/v2/") {
     base = resolve(projectRoot, "Version-2-Gold-Trading");
     relative = "home.html";
+  } else if (pathname === "/admin" || pathname === "/admin/") {
+    // Phase 10 — Admin Dashboard (V2 design system)
+    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    relative = "admin.html";
   } else if (pathname.startsWith("/v2/")) {
     base = resolve(projectRoot, "Version-2-Gold-Trading");
     relative = pathname.slice(4);
@@ -133,7 +244,7 @@ async function serveStatic(req, res, options, pathname) {
 }
 
 export function createRequestHandler(options) {
-  const { repo, updater, scheduler } = options;
+  const { repo, updater, scheduler, autoPilot, auditRepo } = options;
   return async function requestHandler(req, res) {
     try {
       const url = new URL(req.url || "/", "http://localhost");
@@ -182,6 +293,117 @@ export function createRequestHandler(options) {
         const item = repo.getPublishedById(id);
         if (!item) return json(res, 404, { error: "news_not_found" });
         return json(res, 200, toPublicNews(item));
+      }
+
+      // ===== Phase 9 + 10 — Auto Pilot admin endpoints =====
+      // block นี้จัดการ auth (cookie OR Bearer) + CSRF (Origin) ของตัวเอง
+      // แยกจาก /api/admin/news อื่น (ที่ใช้ Bearer เท่านั้น)
+      // ห้ามเปิดเผย ADMIN_TOKEN ใน response ใดๆ
+      if (pathname.startsWith("/api/admin/auto-pilot/")) {
+        if (!autoPilot) {
+          return json(res, 503, { error: "auto_pilot_unavailable" });
+        }
+        const adminToken = options.adminToken || "";
+        const allowedOrigins = options.adminAllowedOrigins || [];
+        const subPath = pathname.slice("/api/admin/auto-pilot/".length);
+        const secure = isSecureRequest(req);
+
+        // --- login: ไม่ต้อง auth ล่วงหน้า, ตรวจ Origin (CSRF) ---
+        if (req.method === "POST" && subPath === "login") {
+          if (!adminToken) return json(res, 503, { error: "admin_api_disabled" });
+          if (!isOriginAllowed(req, allowedOrigins)) {
+            return json(res, 403, { error: "origin_not_allowed" });
+          }
+          const body = await readJson(req).catch(() => ({}));
+          const expected = Buffer.from(String(body.token || ""));
+          const actual = Buffer.from(adminToken);
+          const ok =
+            expected.length === actual.length &&
+            expected.length > 0 &&
+            timingSafeEqual(expected, actual);
+          if (!ok) {
+            return json(res, 401, { error: "invalid_token" });
+          }
+          // ผ่าน → set HttpOnly cookie
+          res.setHeader("Set-Cookie", buildAdminCookie(adminToken, { secure }));
+          return json(res, 200, { ok: true, authenticated: true });
+        }
+
+        // --- session check (GET, safe method, cookie auth, ไม่ต้อง Origin) ---
+        if (req.method === "GET" && subPath === "session") {
+          if (!adminToken) return json(res, 503, { error: "admin_api_disabled" });
+          const authenticated = isAuthorizedByCookie(req, adminToken);
+          return json(res, 200, { authenticated });
+        }
+
+        // --- logout (cookie auth + Origin) ---
+        if (req.method === "POST" && subPath === "logout") {
+          if (!isOriginAllowed(req, allowedOrigins)) {
+            return json(res, 403, { error: "origin_not_allowed" });
+          }
+          res.setHeader("Set-Cookie", buildClearAdminCookie({ secure }));
+          return json(res, 200, { ok: true, authenticated: false });
+        }
+
+        // --- endpoints ที่เหลือ: ต้อง auth (cookie OR Bearer) ---
+        // state-changing ต้อง Origin ด้วย (CSRF)
+        if (!adminToken) {
+          return json(res, 503, { error: "admin_api_disabled" });
+        }
+        if (!isAuthorizedAny(req, adminToken)) {
+          return json(res, 401, { error: "unauthorized" });
+        }
+
+        // GET (safe method) — ไม่ต้อง Origin
+        if (req.method === "GET" && subPath === "status") {
+          const status = autoPilot.getStatus();
+          const recentAudit = auditRepo ? auditRepo.recent(5) : [];
+          return json(res, 200, { ...status, recentAudit });
+        }
+
+        // state-changing — ตรวจ Origin (CSRF)
+        const stateChanging = ["enable", "disable", "run-once", "emergency-stop", "clear-emergency"];
+        if (req.method === "POST" && stateChanging.includes(subPath)) {
+          if (!isOriginAllowed(req, allowedOrigins)) {
+            return json(res, 403, { error: "origin_not_allowed" });
+          }
+          if (subPath === "enable") {
+            const result = autoPilot.enable();
+            if (!result.ok) return json(res, 409, { error: result.error });
+            return json(res, 200, { ok: true, status: autoPilot.getStatus() });
+          }
+          if (subPath === "disable") {
+            autoPilot.disable();
+            return json(res, 200, { ok: true, status: autoPilot.getStatus() });
+          }
+          if (subPath === "emergency-stop") {
+            autoPilot.emergencyStop();
+            return json(res, 200, { ok: true, status: autoPilot.getStatus(), message: "รอบปัจจุบันจะหยุดก่อนข่าวถัดไป" });
+          }
+          if (subPath === "clear-emergency") {
+            autoPilot.clearEmergencyStop();
+            return json(res, 200, { ok: true, status: autoPilot.getStatus() });
+          }
+          if (subPath === "run-once") {
+            if (autoPilot._running) {
+              return json(res, 202, { ok: true, skipped: true, reason: "already_running" });
+            }
+            if (!autoPilot.getStatus().enabled) {
+              return json(res, 409, { error: "auto_pilot_disabled" });
+            }
+            const body = await readJson(req).catch(() => ({}));
+            autoPilot
+              .runOnce({
+                maxPerRun: clampInt(body.maxPerRun, 3, 1, 3),
+                aiOpts: body.aiOpts,
+                skipImage: body.skipImage,
+              })
+              .catch((err) => console.error(`[auto-pilot] run-once failed: ${err.message}`));
+            return json(res, 202, { ok: true, message: "run-once started", running: true });
+          }
+        }
+
+        return json(res, 404, { error: "auto_pilot_endpoint_not_found" });
       }
 
       if (pathname.startsWith("/api/admin/")) {

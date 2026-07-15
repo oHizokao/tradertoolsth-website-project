@@ -79,12 +79,29 @@ export const config = {
     runOnStart: bool("RUN_ON_START", false),
     autoPublish: bool("AUTO_PUBLISH", false),
     maxPerRun: num("NEWS_MAX_PER_RUN", 5),
+    // Phase 8: จำนวนข่าวล่าสุดที่จะเลือกจาก Kitco ตาม sourcePublishedAt
+    // ค่า default 3 ตรงกับโครง "ข่าวล่าสุด" บนเว็บไซต์
+    latestCount: num("NEWS_LATEST_COUNT", 3),
   },
   server: {
     host: process.env.SERVER_HOST || "127.0.0.1",
     port: num("PORT", 3000),
     siteVersion: String(process.env.SITE_VERSION || "2") === "1" ? "1" : "2",
     adminToken: process.env.ADMIN_TOKEN || "",
+    // Phase 10 — CSRF/Origin protection: allowlist สำหรับ admin state-changing endpoints
+    // default ว่าง = ใช้ host ของ server เอง (Origin ต้องตรงกับ req.headers.host)
+    // ตั้งเป็น comma-separated origins เช่น "http://127.0.0.1:3000,https://app.example.com"
+    adminAllowedOrigins: (process.env.ADMIN_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
+  // Phase 9 — Auto Pilot: ค่าเริ่มต้นปิดทุกอย่าง (safety)
+  // ต้องมี env allowed AND database enabled ทั้งคู่จึงจะรันจริง
+  autoPilot: {
+    enabled: bool("AUTO_PILOT_ENABLED", false),
+    intervalMinutes: num("AUTO_PILOT_INTERVAL_MINUTES", 60),
+    maxPerRun: num("AUTO_PILOT_MAX_PER_RUN", 3),
   },
   scraper: {
     maxPerSection: num("KITCO_MAX_PER_SECTION", 20),

@@ -28,7 +28,7 @@ import { getText } from "../utils/httpClient.js";
 import { duplicateHash } from "../utils/hash.js";
 import { createEmptyNews, NewsStatus } from "../utils/schema.js";
 import { isRelevant, tagTopic } from "../utils/filter.js";
-import { checkAge } from "../utils/date.js";
+import { checkAge, extractSourcePublishedAt, toUtcIso } from "../utils/date.js";
 import { dedupeList } from "../store/duplicate.js";
 
 const log = logger.make("kitco");
@@ -119,6 +119,13 @@ function normalizeItem(raw, section) {
   const categoryName =
     (raw.category && raw.category.name) || "";
 
+  // Phase 8: เวลาเผยแพร่จริงจาก Kitco
+  // - originalPublishedAt: ค่าดิบเก็บไว้ backward-compat (เช่น "2026-07-15T09:59:00-0400")
+  // - sourcePublishedAt: ISO 8601 UTC canonical (เช่น "2026-07-15T13:59:00.000Z")
+  //   ใช้เป็นตัวเรียงหลัก หาก parse ไม่ได้ → null (ห้ามเดา ห้าม fallback)
+  const rawDate = extractSourcePublishedAt(raw);
+  const sourcePublishedAt = toUtcIso(rawDate);
+
   return {
     id: String(raw.id ?? ""),
     section,
@@ -128,7 +135,8 @@ function normalizeItem(raw, section) {
     isExternal,
     originalTitle: raw.title || raw.teaserHeadline || "",
     originalAuthor: authorName,
-    originalPublishedAt: raw.createdAt || null,
+    originalPublishedAt: rawDate || null,
+    sourcePublishedAt,
     category: categoryName,
     teaser: raw.teaserSnippet || "",
     topics: tagTopic({
@@ -334,6 +342,7 @@ export async function fetchArticle(item) {
     news.originalTitle = item.originalTitle;
     news.originalAuthor = item.originalAuthor;
     news.originalPublishedAt = item.originalPublishedAt;
+    news.sourcePublishedAt = item.sourcePublishedAt || null;
     news.category = item.category;
     news.originalContent = ""; // external — ไม่ดึงเนื้อหาต้นทาง
     news.duplicateHash = duplicateHash({
@@ -378,7 +387,12 @@ export async function fetchArticle(item) {
   news.originalTitle = art.title || item.originalTitle;
   news.originalAuthor =
     art.author?.name || item.originalAuthor || "";
-  news.originalPublishedAt = art.createdAt || item.originalPublishedAt;
+  // Phase 8: เวลาเผยแพร่จริง — อ่านจาก article page (createdAt) เป็นหลัก
+  // หากบทความไม่มี ใช้ค่าที่ normalize จาก list แทน (item.sourcePublishedAt ที่ผ่าน toUtcIso แล้ว)
+  news.originalPublishedAt =
+    extractSourcePublishedAt(art) || item.originalPublishedAt;
+  news.sourcePublishedAt =
+    toUtcIso(extractSourcePublishedAt(art)) || item.sourcePublishedAt || null;
   news.category = art.category?.name || item.category || "";
   news.originalContent = cleanText;
   news.duplicateHash = duplicateHash({
@@ -429,6 +443,50 @@ export async function fetchArticles(items, opts = {}) {
     }
   }
   return { results, errors };
+}
+
+/**
+ * เลือก N ข่าวล่าสุดจริงตาม sourcePublishedAt (Phase 8)
+ *
+ * กฎ QC (สำคัญ):
+ *   - เรียงตาม sourcePublishedAt จากใหม่ที่สุดไปเก่าสุด (ไม่ใช่ลำดับ scrape)
+ *   - กรองเฉพาะข่าวที่มี sourcePublishedAt (ISO UTC) ที่ parse ได้แล้ว
+ *   - ข่าวที่ไม่มี sourcePublishedAt → แยกไป needsReview (ห้ามเดาเวลา ห้าม fallback)
+ *   - dedupe ภายใน batch ก่อนเลือก (sourceUrl + title)
+ *
+ * @param {NormalizedItem[]} items ข่าวที่ผ่าน fetchDigest แล้ว (normalize + dedupe ข้าม section)
+ * @param {number} n จำนวนข่าวล่าสุดที่จะเลือก (เช่น 3)
+ * @returns {{
+ *   latest: NormalizedItem[],      // N ข่าวล่าสุดตาม sourcePublishedAt (หลัง dedupe)
+ *   needsReview: NormalizedItem[], // ไม่มี sourcePublishedAt — รอตรวจ ห้ามเผยแพร่
+ *   rest: NormalizedItem[]         // ลำดับถัดจาก latest (มีเวลา แต่ไม่ติด N แรก)
+ * }}
+ */
+export function selectTopNews(items, n = 3) {
+  const list = Array.isArray(items) ? items : [];
+  const withDate = [];
+  const needsReview = [];
+  for (const item of list) {
+    if (item && item.sourcePublishedAt) {
+      withDate.push(item);
+    } else if (item) {
+      needsReview.push(item);
+    }
+  }
+
+  // dedupe ภายใน batch ก่อนเลือก (กันซ้ำที่อาจหลุดมาจากหลาย section)
+  const { accepted } = dedupeList(withDate, []);
+
+  // เรียงใหม่ → เก่าตาม sourcePublishedAt (เปรียบเทียบเป็น ms timestamp ปลอดภัยกว่า string)
+  const sorted = accepted.slice().sort((a, b) => {
+    const ta = new Date(a.sourcePublishedAt).getTime();
+    const tb = new Date(b.sourcePublishedAt).getTime();
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+
+  const latest = sorted.slice(0, n);
+  const rest = sorted.slice(n);
+  return { latest, needsReview, rest };
 }
 
 export { StructureError };

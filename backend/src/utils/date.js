@@ -49,3 +49,91 @@ export function checkAge(publishedAt, maxAgeHours) {
   // กรณีวันที่เป็นอนาคต (clock skew / ทดสอบ) ให้ถือว่า fresh
   return { ok: true, ageHours, reason: "fresh" };
 }
+
+/* ============================================================
+   Phase 8 — sourcePublishedAt helpers
+   ------------------------------------------------------------
+   กฎสำคัญ (QC):
+   - เวลาเผยแพร่จริงจากต้นทาง (Kitco) ต้องเก็บเป็น sourcePublishedAt
+   - ห้ามเดาเวลา หาก parse ไม่ได้ให้คืน null (caller ส่งข่าวไป needs_review)
+   - เก็บในฐานข้อมูลเป็น ISO 8601 UTC ที่มี timezone ชัดเจน (suffix Z)
+   - แปลงเป็น Asia/Bangkok เฉพาะตอนแสดงผล
+   ============================================================ */
+
+// ชื่อ field ที่อาจเก็บเวลาเผยแพร่จริงในข้อมูลต้นทาง
+// เรียงตามลำดับความน่าเชื่อถือ (createdAt เป็น field หลักที่ Kitco __NEXT_DATA__ ใช้)
+const SOURCE_DATE_FIELDS = [
+  "createdAt",
+  "publishedAt",
+  "datePublished",
+  "publishDate",
+  "timestamp",
+];
+
+/**
+ * อ่านค่าเวลาเผยแพร่จริงจาก raw object ของต้นทาง
+ * ตรวจ field ที่มีอยู่จริงหลายชื่อ (ตามข้อกำหนด QC)
+ *
+ * @param {object} raw ข้อมูลดิบจาก Kitco __NEXT_DATA__
+ * @returns {string|null} ค่าดิบ (string) ที่พบ หรือ null ถ้าไม่มี field ใดเลย
+ *   (ไม่ parse ตรงนี้ — caller ใช้ toUtcIso เพื่อ parse + normalize)
+ */
+export function extractSourcePublishedAt(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  for (const key of SOURCE_DATE_FIELDS) {
+    const v = raw[key];
+    if (v !== undefined && v !== null && String(v).trim() !== "") {
+      return String(v).trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * แปลงค่าเวลา (หลายรูปแบบ) เป็น ISO 8601 UTC ที่มี timezone ชัดเจน
+ * เช่น "2026-07-15T09:59:00-0400" → "2026-07-15T13:59:00.000Z"
+ *
+ * กฎ: หาก parse ไม่ได้ → คืน null (ห้ามเดา ห้าม fallback)
+ *
+ * @param {string|Date|null|undefined} value
+ * @returns {string|null} ISO UTC string (suffix Z) หรือ null
+ */
+export function toUtcIso(value) {
+  const d = parseKitcoDate(value);
+  if (!d) return null;
+  return d.toISOString(); // เสมอ UTC + Z เช่น 2026-07-15T13:59:00.000Z
+}
+
+// เดือนย่อภาษาไทย (ตรงกับ toLocaleDateString('th-TH', {month:'short'}) สำหรับเดือนเต็ม)
+const TH_SHORT_MONTH = [
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+];
+
+/**
+ * แปลง ISO (UTC) เป็นเวลา Asia/Bangkok สำหรับแสดงผล
+ * รูปแบบ: "เผยแพร่เมื่อ 15 ก.ค. 2026 20:59 น."
+ *
+ * @param {string|null|undefined} iso
+ * @param {object} [opts] { prefix?: string, timeOnly?: boolean }
+ * @returns {string} ข้อความเวลาภาษาไทย หรือ "-" ถ้า iso ไม่ valid
+ */
+export function toBangkokString(iso, opts = {}) {
+  const d = parseKitcoDate(iso);
+  if (!d) return "-";
+  // แปลงเป็นเวลา Asia/Bangkok (UTC+7) — ไม่พึ่งพา timezone เครื่องรัน
+  const bangkokMs = d.getTime() + 7 * 3_600_000;
+  const dt = new Date(bangkokMs);
+  const day = String(dt.getUTCDate()).padStart(2, "0");
+  const month = TH_SHORT_MONTH[dt.getUTCMonth()];
+  const year = dt.getUTCFullYear();
+  const hh = String(dt.getUTCHours()).padStart(2, "0");
+  const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+  const timePart = `${hh}:${mm} น.`;
+  if (opts.timeOnly) return timePart;
+  const datePart = `${day} ${month} ${year} ${timePart}`;
+  const prefix = opts.prefix != null ? opts.prefix : "เผยแพร่เมื่อ ";
+  return `${prefix}${datePart}`;
+}
+
+export { SOURCE_DATE_FIELDS };

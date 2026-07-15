@@ -64,7 +64,7 @@
         n.impact
       )} Impact</span>
                   <span>•</span>
-                  <span>${h.formatTime(n.publishedAt)}</span>
+                  <span>${h.formatBangkok(n.sourcePublishedAt || n.publishedAt)}</span>
                   <span>•</span>
                   <span>${n.readMinutes} นาทีอ่าน</span>
                 </div>
@@ -111,6 +111,12 @@
                   }
                 </div>
               </div>
+
+              ${
+                n.importedAt
+                  ? `<p class="text-muted" style="font-size:var(--fs-xs);margin-top:8px">${h.formatImported(n.importedAt)}</p>`
+                  : ""
+              }
 
               <div class="alert alert--warn" style="margin-top:16px">
                 <span class="alert__icon">${TT.icon("warning", 18)}</span>

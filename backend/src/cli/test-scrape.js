@@ -64,6 +64,7 @@ async function runSingleArticle(url) {
   console.log(`แหล่ง       : ${news.source}`);
   console.log(`หมวด       : ${news.category}`);
   console.log(`เผยแพร่เมื่อ : ${news.originalPublishedAt}`);
+  console.log(`sourcePub  : ${news.sourcePublishedAt || "(ไม่มี — needsReview)"}`);
   console.log(`duplicateHash: ${news.duplicateHash}`);
   console.log(`ความยาวเนื้อหา: ${news.originalContent.length} ตัวอักษร`);
   line();
@@ -173,7 +174,7 @@ async function runList(args) {
       `${String(i + 1).padStart(2)}. [${it.section.padEnd(20)}] ${it.originalTitle}`
     );
     console.log(
-      `     ${it.originalPublishedAt} | ${it.source} | topics: ${it.topics.join(",") || "-"}`
+      `     ${it.originalPublishedAt} | sourcePub: ${it.sourcePublishedAt || "(ไม่มี)"} | topics: ${it.topics.join(",") || "-"}`
     );
     console.log(`     ${it.sourceUrl}`);
   });

@@ -46,6 +46,42 @@ TT.h = {
     });
   },
 
+  // Phase 8: แปลง ISO (UTC) → เวลา Asia/Bangkok สำหรับ "เผยแพร่เมื่อ ..."
+  // ไม่พึ่ง timezone เครื่องรัน (รวม offset +7 เอง)
+  formatBangkok(iso, opts = {}) {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (isNaN(d)) return "-";
+    const bangkokMs = d.getTime() + 7 * 3_600_000;
+    const dt = new Date(bangkokMs);
+    const TH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+    const day = String(dt.getUTCDate()).padStart(2, "0");
+    const month = TH_SHORT[dt.getUTCMonth()];
+    const year = dt.getUTCFullYear();
+    const hh = String(dt.getUTCHours()).padStart(2, "0");
+    const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+    if (opts.timeOnly) return `${hh}:${mm} น.`;
+    const body = `${day} ${month} ${year} ${hh}:${mm} น.`;
+    const prefix = opts.prefix != null ? opts.prefix : "เผยแพร่เมื่อ ";
+    return `${prefix}${body}`;
+  },
+
+  // Phase 8: เวลาที่ระบบนำเข้า (importedAt) — ข้อมูลภายใน ไม่ใช่ตัวเรียงหลัก
+  formatImported(iso) {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (isNaN(d)) return "-";
+    const bangkokMs = d.getTime() + 7 * 3_600_000;
+    const dt = new Date(bangkokMs);
+    const TH_SHORT = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+    const day = String(dt.getUTCDate()).padStart(2, "0");
+    const month = TH_SHORT[dt.getUTCMonth()];
+    const year = dt.getUTCFullYear();
+    const hh = String(dt.getUTCHours()).padStart(2, "0");
+    const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+    return `นำเข้าระบบ ${day} ${month} ${year} ${hh}:${mm} น.`;
+  },
+
   // วันในสัปดาห์ภาษาไทย
   weekdayTh(iso) {
     const d = new Date(iso);

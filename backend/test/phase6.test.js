@@ -21,6 +21,8 @@ function sampleNews(overrides = {}) {
     originalTitle: "Gold rises as Fed rate expectations change",
     originalAuthor: "Kitco News",
     originalPublishedAt: now,
+    // Phase 8: sourcePublishedAt เป็นตัวเรียงหลัก — ต้องไม่ null จึงจะปรากฏใน listing
+    sourcePublishedAt: now,
     category: "Market News",
     originalContent: "Gold prices moved higher after interest-rate expectations changed. ".repeat(5),
     thaiTitle: "ทองคำปรับตัวขึ้น หลังมุมมองดอกเบี้ยเฟดเปลี่ยน",

@@ -18,7 +18,7 @@ const log = logger.make("repo");
 // INSERT column list (idempotent via ON CONFLICT DO NOTHING)
 const INSERT_COLUMNS = [
   "id", "source", "source_url", "original_title", "original_author",
-  "original_published_at", "category", "original_content",
+  "original_published_at", "source_published_at", "category", "original_content",
   "thai_title", "thai_summary", "thai_content", "market_factors",
   "key_facts", "mentioned_numbers", "credit",
   "image_url", "image_source", "image_author", "image_author_url",
@@ -288,7 +288,8 @@ export function createNewsRepository(db) {
         `SELECT * FROM news
          WHERE publish_status = 'published'
            AND validation_status = 'validated'
-         ORDER BY COALESCE(published_at, original_published_at, created_at) DESC
+           AND source_published_at IS NOT NULL
+         ORDER BY source_published_at DESC
          LIMIT ? OFFSET ?`
       )
       .all(limit, offset);
@@ -327,9 +328,11 @@ export function createNewsRepository(db) {
    * ใช้สำหรับ public API เพื่อให้ category filter + pagination คำนวณได้ถูกต้อง
    * หากแค่ listPublished(limit,offset) ก่อน filter → offset จะนับจากข่าวทุกหมวด ทำให้ผลลัพธ์ผิด
    *
-   * QC:
+   * QC (Phase 8 — no fallback):
    * - เฉพาะ publish_status='published' AND validation_status='validated'
-   * - เรียง COALESCE(published_at, original_published_at, created_at) DESC
+   * - ต้องมี source_published_at (WHERE IS NOT NULL) — ข่าวที่ไม่มีเวลาต้นทาง
+   *   จะไม่ปรากฏใน public listing (ห้ามใช้ createdAt/publishedAt แทน)
+   * - เรียง source_published_at DESC เท่านั้น
    * - draft / ready / rejected / processing / failed ไม่ถูกส่งออก
    */
   function listAllPublished() {
@@ -338,7 +341,8 @@ export function createNewsRepository(db) {
         `SELECT * FROM news
          WHERE publish_status = 'published'
            AND validation_status = 'validated'
-         ORDER BY COALESCE(published_at, original_published_at, created_at) DESC`
+           AND source_published_at IS NOT NULL
+         ORDER BY source_published_at DESC`
       )
       .all();
     return rows.map(rowToNews);

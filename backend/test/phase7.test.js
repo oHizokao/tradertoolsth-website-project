@@ -30,6 +30,9 @@ function makeNews(id, overrides = {}) {
     originalTitle: `Gold news ${id}`,
     originalAuthor: "Kitco",
     originalPublishedAt: created,
+    // Phase 8: sourcePublishedAt เป็นตัวเรียงหลัก ต้องไม่ null จึงจะปรากฏใน listing
+    // default เท่ากับ created เพื่อ backward-compat กับ assertion สมัยใช้ publishedAt เรียง
+    sourcePublishedAt: created,
     category: "Market News",
     originalContent: "Gold prices moved. ".repeat(6),
     thaiTitle: `ทองคำข่าว ${id}`,
@@ -112,16 +115,19 @@ test("news sorted by original_published_at when publishedAt missing", async () =
   db.close();
 });
 
-test("news sorted by createdAt when both publishedAt and original missing", async () => {
+test("news missing sourcePublishedAt are excluded from public listing (no fallback)", async () => {
+  // Phase 8: ห้าม fallback ไป createdAt/publishedAt
+  // ข่าวที่ไม่มี sourcePublishedAt ต้องไม่ปรากฏใน public API
   const db = createTestDb();
   const repo = createNewsRepository(db);
-  const x = makeNews("x", { publishedAt: null, originalPublishedAt: null, createdAt: "2026-07-03T00:00:00.000Z" });
-  const y = makeNews("y", { publishedAt: null, originalPublishedAt: null, createdAt: "2026-07-08T00:00:00.000Z" });
+  const x = makeNews("x", { sourcePublishedAt: null, publishedAt: "2026-07-08T00:00:00.000Z", originalPublishedAt: "2026-07-08T00:00:00.000Z", createdAt: "2026-07-03T00:00:00.000Z" });
+  const y = makeNews("y", { sourcePublishedAt: null, publishedAt: "2026-07-09T00:00:00.000Z", originalPublishedAt: "2026-07-09T00:00:00.000Z", createdAt: "2026-07-08T00:00:00.000Z" });
   [x, y].forEach((n) => repo.insertNews(n));
 
   const { server, base } = await makeServer(repo, projectRoot);
   const res = await fetch(`${base}/api/news`).then((r) => r.json());
-  assert.deepEqual(res.items.map((i) => i.id), ["y", "x"]);
+  assert.equal(res.items.length, 0, "ข่าวที่ไม่มี sourcePublishedAt ต้องไม่ปรากฏ");
+  assert.equal(res.total, 0);
   await new Promise((r) => server.close(r));
   db.close();
 });
