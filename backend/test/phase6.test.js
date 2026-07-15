@@ -156,14 +156,36 @@ test("HTTP API serves only published news plus both website versions", async () 
 
   const health = await fetch(`${base}/api/health`).then((r) => r.json());
   assert.equal(health.ok, true);
+
+  // default response = envelope {items,total,limit,offset,hasMore}
   const list = await fetch(`${base}/api/news?category=gold`).then((r) => r.json());
-  assert.equal(list.length, 1);
-  assert.equal(list[0].id, published.id);
+  assert.equal(Array.isArray(list.items), true);
+  assert.equal(list.items.length, 1);
+  assert.equal(list.items[0].id, published.id);
+  assert.equal(list.total, 1);
+  assert.equal(list.hasMore, false);
+  assert.equal(list.limit, 50);
+  assert.equal(list.offset, 0);
+
+  // legacy plain-array format still supported (?format=array)
+  const legacy = await fetch(`${base}/api/news?category=gold&format=array`).then((r) => r.json());
+  assert.equal(Array.isArray(legacy), true);
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].id, published.id);
+
   const detail = await fetch(`${base}/api/news/${published.id}`).then((r) => r.json());
   assert.equal(detail.title, published.thaiTitle);
   assert.equal((await fetch(`${base}/api/news/${held.id}`)).status, 404);
   assert.equal((await fetch(`${base}/v1/news.html`)).status, 200);
   assert.equal((await fetch(`${base}/v2/news.html`)).status, 200);
+  assert.equal(
+    (await fetch(`${base}/Version-1-Premium-Dashboard/home.html`)).status,
+    200
+  );
+  assert.equal(
+    (await fetch(`${base}/Version-2-Gold-Trading/home.html`)).status,
+    200
+  );
   assert.equal((await fetch(`${base}/api/admin/news`)).status, 503);
 
   await new Promise((resolveClose) => server.close(resolveClose));

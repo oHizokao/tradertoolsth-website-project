@@ -23,7 +23,8 @@ import { BANNED_PHRASES } from "./prompts.js";
  */
 function normalizeNumToken(token) {
   return String(token)
-    .replace(/[$,\s]/g, "")
+    .replace(/[−–—]/g, "-")
+    .replace(/[$€£฿,\s]/g, "")
     .trim()
     .toLowerCase();
 }
@@ -45,7 +46,7 @@ const ORDINAL_PATTERN =
  * noise  = ordinal (1st, ที่ 1, ไตรมาสที่ 1) ที่ไม่ใช่ figure
  */
 function isSignificantNumber(token, fullText, index) {
-  const cleaned = token.replace(/[$,\s%]/g, "");
+  const cleaned = token.replace(/[−–—$€£฿,\s%]/g, "").replace(/^-/, "");
   // ข้าม ordinal ก่อน (ลด false positive) — เฉพาะเลข 1-2 หลักที่ไม่มี %/comma/decimal
   if (/^\d{1,2}$/.test(cleaned)) {
     const start = Math.max(0, index - 30);
@@ -76,7 +77,7 @@ function extractNumbers(text) {
   const full = String(text);
   // จับเลขทุกรูปแบบ: comma / decimal / % / ล้วน (ทุกจำนวนหลัก)
   const re =
-    /\$?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|\$?\d+\.\d+%?|\$?\d+%\b|\b\d+\b/g;
+    /[-−–—]?[$€£฿]?\d{1,3}(?:,\d{3})+(?:\.\d+)?%?|[-−–—]?[$€£฿]?\d+\.\d+%?|[-−–—]?[$€£฿]?\d+%\b|[-−–—]?\b\d+\b/g;
   let m;
   const reGlobal = new RegExp(re.source, "g");
   while ((m = reGlobal.exec(full)) !== null) {
@@ -151,6 +152,25 @@ export function checkNumbers(originalText, thaiText) {
   };
 }
 
+/** AI is advisory for number matching. Only a locally observed added number, or
+ * an AI mismatch whose normalized values truly differ, may block publishing. */
+export function reconcileNumberValidation(aiValidation, numberCheck) {
+  const unexpected = new Set(numberCheck.unexpected || []);
+  const realAiMismatches = (aiValidation?.numberMismatches || []).filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const original = normalizeNumToken(item.original || "");
+    const rewritten = normalizeNumToken(item.rewritten || "");
+    // If the rewritten value exists anywhere in the source, the AI merely
+    // paired two unrelated source figures and must not call it a mismatch.
+    return original && rewritten && original !== rewritten && unexpected.has(rewritten);
+  });
+  return {
+    numbersMatch: numberCheck.unexpected.length === 0 && realAiMismatches.length === 0,
+    realAiMismatches,
+    aiDisagreed: aiValidation?.numbersMatch === false && realAiMismatches.length === 0,
+  };
+}
+
 /**
  * คำนวณ confidence เบื้องต้นจากการตรวจเชิงกล
  * (AI validator จะปรับเพิ่มภายหลัง — ใช้ค่าต่ำสุดเป็นเกณฑ์)
@@ -173,16 +193,10 @@ export function localConfidence(opts) {
     score -= 30;
     issues.push(`investment_advice:${opts.adviceWords.length}`);
   }
-  if (opts.numberCheck && opts.numberCheck.originalCount > 0) {
-    const ratio =
-      opts.numberCheck.missing.length / opts.numberCheck.originalCount;
-    if (ratio > 0.3) {
-      score -= 20;
-      issues.push(`numbers_missing_${Math.round(ratio * 100)}pct`);
-    } else if (ratio > 0.1) {
-      score -= 10;
-      issues.push(`numbers_missing_${Math.round(ratio * 100)}pct`);
-    }
+  // A summary is not required to repeat every source number. Missing source
+  // numbers are recorded for review but are not an accuracy failure.
+  if (opts.numberCheck?.missing?.length) {
+    issues.push(`numbers_omitted:${opts.numberCheck.missing.length}`);
   }
   // unexpected numbers → หักคะแนน (แต่งเพิ่ม = ความเสี่ยงด้านความถูกต้อง)
   if (opts.numberCheck && opts.numberCheck.unexpected.length) {
@@ -217,7 +231,7 @@ export function validateRewritten(originalNews, rewritten) {
   const bannedWords = findBannedWords(thaiFlat);
   const adviceWords = findInvestmentAdvice(thaiFlat);
   const numberCheck = checkNumbers(
-    originalNews.originalContent,
+    [originalNews.originalTitle, originalNews.originalContent].filter(Boolean).join(" "),
     // รวมทุก field ที่อาจมีตัวเลขของข่าวไทย
     [
       rewritten.thaiTitle,

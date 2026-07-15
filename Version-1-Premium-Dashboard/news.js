@@ -65,7 +65,7 @@
     const el = document.getElementById("newsList");
     TT.h.loading(el, 3);
     try {
-      const list = await TT.NewsService.fetchNews(state.category);
+      const list = await TT.NewsService.fetchAll(state.category);
       if (!list.length) return TT.h.empty(el, "ยังไม่มีข่าวในหมวดนี้");
       el.innerHTML = list.map(TT.cards.newsCard).join("");
     } catch (e) {

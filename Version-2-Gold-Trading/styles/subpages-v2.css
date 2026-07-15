@@ -1,0 +1,381 @@
+/* ============================================================
+   Version 2 — shared dark theme for all inner pages
+   Matches the Gold Trading Desk home page.
+   ============================================================ */
+
+.subpage-v2 {
+  --v2-bg: #031426;
+  --v2-bg-deep: #020e1c;
+  --v2-panel: #0a2138;
+  --v2-panel-2: #0d2943;
+  --v2-border: rgba(120, 160, 196, 0.17);
+  --v2-text: #f3f7fb;
+  --v2-soft: #a4b4c5;
+  --v2-muted: #71869b;
+  --v2-gold: #e5b33f;
+  --v2-gold-soft: #f0ca68;
+  --v2-teal: #25bca8;
+  --v2-blue: #2f8ddd;
+
+  --surface: var(--v2-panel);
+  --surface-soft: var(--v2-bg);
+  --surface-muted: var(--v2-panel-2);
+  --surface-2: var(--v2-panel-2);
+  --bg-base: var(--v2-bg);
+  --bg-surface: var(--v2-panel);
+  --bg-surface-2: var(--v2-panel-2);
+  --bg-elevated: #102d48;
+
+  --ink-900: var(--v2-text);
+  --ink-800: #dce6ef;
+  --ink-700: var(--v2-soft);
+  --ink-600: #91a3b4;
+  --ink-500: var(--v2-muted);
+  --ink-400: #60778e;
+  --ink-300: #4c667f;
+  --text-primary: var(--v2-text);
+  --text-secondary: var(--v2-soft);
+  --text-muted: var(--v2-muted);
+  --text-faint: #60778e;
+
+  --border: var(--v2-border);
+  --border-strong: rgba(130, 171, 207, 0.28);
+  --border-accent: rgba(229, 179, 63, 0.42);
+  --accent: var(--v2-gold);
+  --accent-bright: var(--v2-gold-soft);
+  --accent-soft: rgba(229, 179, 63, 0.1);
+  --teal-600: var(--v2-teal);
+  --teal-500: var(--v2-teal);
+  --teal-100: rgba(37, 188, 168, 0.16);
+  --teal-50: rgba(37, 188, 168, 0.08);
+  --gold-600: var(--v2-gold);
+  --gold-500: var(--v2-gold);
+  --gold-100: rgba(229, 179, 63, 0.16);
+  --gold-50: rgba(229, 179, 63, 0.08);
+  --success: #2bc1a9;
+  --success-soft: rgba(43, 193, 169, 0.14);
+  --danger: #f07878;
+  --danger-soft: rgba(240, 120, 120, 0.14);
+
+  background: var(--v2-bg-deep);
+  color: var(--v2-text);
+  font-family: "Noto Sans", "Bai Jamjuree", sans-serif;
+}
+
+.subpage-v2 main {
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 82% 4%, rgba(22, 100, 128, 0.13), transparent 24rem),
+    linear-gradient(rgba(46, 87, 124, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46, 87, 124, 0.055) 1px, transparent 1px),
+    var(--v2-bg);
+  background-size: auto, 56px 56px, 56px 56px, auto;
+}
+
+/* Header — same compact treatment as the Version 2 home page. */
+.subpage-v2 .navbar {
+  height: 62px;
+  background: rgba(3, 20, 38, 0.97);
+  border-bottom: 1px solid rgba(167, 188, 208, 0.12);
+  backdrop-filter: blur(16px);
+}
+
+.subpage-v2 .navbar .container {
+  width: min(100% - 44px, 1400px);
+  max-width: 1400px;
+  padding-inline: 0;
+}
+
+.subpage-v2 .brand { gap: 9px; }
+.subpage-v2 .brand-mark {
+  width: 28px;
+  height: 30px;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  transform: skewX(-6deg);
+}
+.subpage-v2 .brand-mark i { display: block; width: 6px; border-radius: 1px 1px 0 0; background: #f6f8fb; }
+.subpage-v2 .brand-mark i:nth-child(1) { height: 13px; background: var(--v2-gold); }
+.subpage-v2 .brand-mark i:nth-child(2) { height: 22px; }
+.subpage-v2 .brand-mark i:nth-child(3) { height: 17px; background: #c8d2dc; }
+.subpage-v2 .brand__logo { display: none; }
+.subpage-v2 .brand__name > span { display: none; }
+.subpage-v2 .brand__name b { color: #f7f9fc; font-size: 18px; letter-spacing: -0.03em; }
+.subpage-v2 .brand__th { color: var(--v2-gold); font-size: inherit !important; }
+.subpage-v2 .nav-links { gap: 8px; margin-left: auto; margin-right: auto; }
+.subpage-v2 .nav-links > a,
+.subpage-v2 .nav-item--has-drop > a { padding: 21px 12px 18px; border-radius: 0; color: #c3cdd8; font-size: 13px; font-weight: 500; }
+.subpage-v2 .nav-links a:hover { color: #fff; background: transparent; }
+.subpage-v2 .nav-links a.is-active { color: var(--v2-gold-soft); }
+.subpage-v2 .nav-links a.is-active::after { left: 10px; right: 10px; bottom: 0; height: 2px; background: var(--v2-gold); }
+.subpage-v2 .nav-actions { gap: 7px; }
+.subpage-v2 .nav-icon-btn { width: 34px; height: 34px; color: #b5c3d0; }
+.subpage-v2 .nav-lang,
+.subpage-v2 .nav-divider { display: none; }
+.subpage-v2 .nav-actions .btn { min-height: 38px; padding: 8px 16px; border-radius: 6px; font-size: 12px; }
+.subpage-v2 .nav-actions .btn--teal { color: #17202a; background: linear-gradient(135deg, #efcb68, #dba12a); border-color: #e7b544; }
+.subpage-v2 .nav-actions .btn--teal:hover { color: #17202a; background: #f2cc65; }
+
+/* Make the market strip visible under the fixed header. */
+.subpage-v2 .ticker-tape {
+  margin-top: 62px;
+  background: #061a30;
+  border-color: rgba(120, 160, 196, 0.12);
+}
+
+.subpage-v2 .ticker-tape__track { padding-block: 9px; }
+.subpage-v2 .ticker-tape__item { color: #91a3b4; }
+
+.subpage-v2 .page {
+  padding-top: 52px;
+  padding-bottom: 72px;
+}
+
+.subpage-v2 .page > .container {
+  width: min(100% - 44px, 1320px);
+  max-width: 1320px;
+  padding-inline: 0;
+}
+
+.subpage-v2 .page-head {
+  position: relative;
+  max-width: 860px;
+  margin-bottom: 38px;
+  padding-left: 20px;
+}
+
+.subpage-v2 .page-head::before {
+  content: "";
+  position: absolute;
+  inset: 3px auto 3px 0;
+  width: 3px;
+  border-radius: 4px;
+  background: linear-gradient(var(--v2-gold), var(--v2-teal));
+}
+
+.subpage-v2 .page-head .eyebrow {
+  margin-bottom: 14px;
+  padding: 5px 11px;
+  color: var(--v2-gold-soft);
+  background: rgba(229, 179, 63, 0.08);
+  border-color: rgba(229, 179, 63, 0.3);
+}
+
+.subpage-v2 .page-head h1 {
+  margin-bottom: 12px;
+  color: #f4f8fb;
+  font-size: clamp(34px, 4vw, 52px);
+  letter-spacing: -0.035em;
+}
+
+.subpage-v2 .text-grad-blue {
+  color: var(--v2-gold);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+.subpage-v2 .page-head p {
+  color: #aebdcb;
+  font-size: 15px;
+}
+
+/* Panels, cards, filters and tables. */
+.subpage-v2 .card,
+.subpage-v2 .filter-bar,
+.subpage-v2 .table-wrap,
+.subpage-v2 .faq-item,
+.subpage-v2 .contact-channel,
+.subpage-v2 .alert,
+.subpage-v2 .state {
+  background: linear-gradient(145deg, rgba(13, 40, 65, 0.97), rgba(7, 29, 49, 0.97));
+  border-color: var(--v2-border);
+  box-shadow: 0 12px 32px rgba(0, 7, 16, 0.14);
+}
+
+.subpage-v2 .card--hover:hover,
+.subpage-v2 .contact-channel:hover,
+.subpage-v2 .faq-item:hover {
+  border-color: rgba(229, 179, 63, 0.36);
+  box-shadow: 0 14px 34px rgba(0, 7, 16, 0.24);
+}
+
+.subpage-v2 .card--accent-top::before { background: var(--v2-gold); }
+.subpage-v2 .card--accent-top-teal::before { background: var(--v2-teal); }
+.subpage-v2 .card--accent-top-gold::before { background: var(--v2-gold); }
+
+.subpage-v2 .tabs {
+  border-color: rgba(120, 160, 196, 0.2);
+}
+.subpage-v2 .tabs__btn { color: #8094a8; }
+.subpage-v2 .tabs__btn:hover { color: #dbe5ee; }
+.subpage-v2 .tabs__btn.is-active { color: var(--v2-gold-soft); border-bottom-color: var(--v2-gold); }
+
+.subpage-v2 .segmented { background: #061a30; border-color: var(--v2-border); }
+.subpage-v2 .segmented button:hover { color: #fff; background: #102f4d; }
+.subpage-v2 .segmented button.is-active { color: #102033; background: var(--v2-gold); }
+
+.subpage-v2 table.data thead th { background: #061a30; color: #8094a8; border-color: var(--v2-border); }
+.subpage-v2 table.data tbody td { border-color: var(--v2-border); }
+.subpage-v2 table.data tbody tr:hover { background: rgba(37, 188, 168, 0.05); }
+
+.subpage-v2 .btn--primary,
+.subpage-v2 .btn--teal { color: #102033; background: linear-gradient(135deg, #efcb68, #dba12a); border-color: #e7b544; }
+.subpage-v2 .btn--primary:hover,
+.subpage-v2 .btn--teal:hover { color: #102033; background: #f2cc65; }
+.subpage-v2 .btn--ghost { color: #dbe5ee; background: rgba(6, 26, 48, 0.45); border-color: rgba(160, 190, 216, 0.28); }
+.subpage-v2 .btn--ghost:hover { color: #fff; border-color: rgba(229, 179, 63, 0.48); }
+
+.subpage-v2 .badge--accent { color: #8ecaff; background: rgba(47, 141, 221, 0.12); border-color: rgba(47, 141, 221, 0.26); }
+.subpage-v2 .badge--gold,
+.subpage-v2 .badge--premium { color: var(--v2-gold-soft); background: rgba(229, 179, 63, 0.1); border-color: rgba(229, 179, 63, 0.25); }
+.subpage-v2 .badge--teal,
+.subpage-v2 .badge--buy { color: #6de0d0; background: rgba(37, 188, 168, 0.1); border-color: rgba(37, 188, 168, 0.24); }
+
+.subpage-v2 .news-card__media { border-color: var(--v2-border); background: #061a30; }
+.subpage-v2 .news-card:hover .news-card__title { color: var(--v2-gold-soft); }
+.subpage-v2 .news-card__meta,
+.subpage-v2 .signal-card__footer { border-color: var(--v2-border); }
+
+.subpage-v2 .alert--warn { background: rgba(229, 179, 63, 0.075); border-color: rgba(229, 179, 63, 0.22); }
+.subpage-v2 .alert--info { background: rgba(47, 141, 221, 0.075); border-color: rgba(47, 141, 221, 0.2); }
+.subpage-v2 .article-cover { border: 1px solid var(--v2-border); }
+.subpage-v2 .article-impact { background: rgba(37, 188, 168, 0.07); border-color: rgba(37, 188, 168, 0.2); }
+.subpage-v2 .prose { color: #b5c4d2; }
+.subpage-v2 .prose h2,
+.subpage-v2 .prose h3,
+.subpage-v2 .prose strong { color: #f3f7fb; }
+
+.subpage-v2 .footer {
+  margin-top: 0;
+  background: #020e1c;
+  border-color: rgba(120, 160, 196, 0.12);
+}
+
+.subpage-v2 ::-webkit-scrollbar-track { background: var(--v2-bg-deep); }
+.subpage-v2 ::-webkit-scrollbar-thumb { background: #264963; }
+
+@media (max-width: 1100px) {
+  .subpage-v2 .navbar .container,
+  .subpage-v2 .page > .container { width: min(100% - 32px, 980px); }
+  .subpage-v2 .nav-links > a,
+  .subpage-v2 .nav-item--has-drop > a { padding-inline: 8px; }
+}
+
+@media (max-width: 720px) {
+  .subpage-v2 .navbar__inner { gap: 10px; min-width: 0; }
+  .subpage-v2 .brand { min-width: 0; flex-shrink: 1; }
+  .subpage-v2 .brand__name { min-width: 0; white-space: nowrap; }
+  .subpage-v2 .nav-actions { flex-shrink: 0; gap: 6px; }
+  .subpage-v2 .nav-icon-btn { display: none; }
+  .subpage-v2 .nav-actions .btn--teal.btn--sm { padding-inline: 11px; }
+  .subpage-v2 .nav-toggle { width: 38px; height: 38px; }
+  .subpage-v2 .ticker-tape { margin-top: 64px; }
+  .subpage-v2 .page { padding-top: 38px; padding-bottom: 54px; }
+  .subpage-v2 .page > .container { width: min(100% - 28px, 620px); }
+  .subpage-v2 .page-head { margin-bottom: 30px; padding-left: 15px; }
+  .subpage-v2 .page-head h1 { font-size: clamp(31px, 10vw, 42px); }
+  .subpage-v2 .page-head p { font-size: 14px; }
+}
+
+/* ============================================================
+   News list (V2) — section headers, load-more, error states
+   ============================================================ */
+
+/* section title "ข่าวล่าสุด" / "ข่าวเพิ่มเติม" */
+.subpage-v2 .news-section-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 28px 0 20px;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  color: #eef4f9;
+  letter-spacing: -0.01em;
+}
+.subpage-v2 .news-section-title > span:first-child {
+  flex: 0 0 auto;
+}
+.subpage-v2 .news-section-title__rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(229, 179, 63, 0.4), rgba(120, 160, 196, 0.05));
+}
+.subpage-v2 .news-section-title--more {
+  color: #c9d6e2;
+  font-size: 16px;
+}
+.subpage-v2 .news-section-title--more .news-section-title__rule {
+  background: linear-gradient(90deg, rgba(37, 188, 168, 0.4), rgba(120, 160, 196, 0.05));
+}
+
+/* กันการ์ดข่าวถูกบัง/ไม่สมดุล: enforce ขั้นต่ำและ full-height + กัน overflow */
+.subpage-v2 #newsLatest,
+.subpage-v2 #newsMore {
+  min-width: 0;
+}
+.subpage-v2 #newsLatest > .news-card,
+.subpage-v2 #newsMore > .news-card {
+  height: 100%;
+}
+
+/* load more button */
+.subpage-v2 .news-loadmore-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 32px 0 8px;
+}
+.subpage-v2 .news-loadmore-btn {
+  min-width: 200px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.subpage-v2 .news-loadmore-btn[data-state="loading"] {
+  opacity: 0.7;
+  cursor: progress;
+}
+.subpage-v2 .news-loadmore-btn[data-state="done"] {
+  opacity: 0.6;
+  cursor: default;
+  border-style: dashed;
+}
+.subpage-v2 .news-loadmore-btn[data-state="error"] {
+  color: #ffd2d2;
+  border-color: rgba(240, 120, 120, 0.45);
+}
+.subpage-v2 .news-loadmore-note {
+  margin: 0;
+  font-size: 13px;
+  color: #f0a8a8;
+}
+
+/* error state กว้างเต็มคอลัมน์ (กรณีโหลดข่าวล่าสุดล้มเหลว) */
+.subpage-v2 .state--wide {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 40px 20px;
+}
+
+/* Mobile: ข่าวสองคอลัมน์ ไม่ให้ horizontal overflow */
+@media (max-width: 720px) {
+  .subpage-v2 .news-section-title { font-size: 16px; margin: 22px 0 16px; gap: 12px; }
+  .subpage-v2 #newsLatest,
+  .subpage-v2 #newsMore { grid-template-columns: 1fr 1fr !important; gap: 12px; }
+  .subpage-v2 .news-loadmore-btn { width: 100%; min-width: 0; }
+}
+
+@media (max-width: 480px) {
+  .subpage-v2 #newsLatest,
+  .subpage-v2 #newsMore { grid-template-columns: 1fr !important; }
+}

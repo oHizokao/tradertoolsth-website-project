@@ -140,3 +140,16 @@ ${(original.originalContent || "").slice(0, 5000)}
     { role: "user", content: user },
   ];
 }
+
+export function buildCorrectionMessages(original, rewritten, issues) {
+  return [
+    {
+      role: "system",
+      content: `คุณเป็นบรรณาธิการแก้ข่าวการเงิน แก้เฉพาะจุดที่ QC ระบุ ห้ามเพิ่มข้อมูลหรือตัวเลขใหม่ คืน JSON schema เดิมของข่าวไทยเท่านั้น`,
+    },
+    {
+      role: "user",
+      content: `ต้นฉบับ:\n${[original.originalTitle, original.originalContent].filter(Boolean).join("\n").slice(0, 6000)}\n\nข่าวไทยเดิม:\n${JSON.stringify(rewritten)}\n\nปัญหาที่ต้องแก้:\n${JSON.stringify(issues)}`,
+    },
+  ];
+}

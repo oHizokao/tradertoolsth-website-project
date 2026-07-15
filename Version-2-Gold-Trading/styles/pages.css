@@ -1,3 +1,5 @@
+@import url("subpages-v2.css");
+
 /* ============================================================
    TraderToolsTH — Page-specific styles (v5 — Visual Reset)
    เรียบ คม สะอาด — ลบ glow/gradient ออก
@@ -186,12 +188,15 @@
 
 /* ---------- Ticker tape (subpages) ---------- */
 .ticker-tape {
+  --ticker-start: calc(100vw + 220px);
+  height: 42px;
   background: var(--navy-900);
   color: var(--text-on-navy-soft);
   border-bottom: 1px solid var(--navy-800);
   overflow: hidden;
   white-space: nowrap;
   position: relative;
+  perspective: 700px;
 }
 
 .ticker-tape::before,
@@ -207,7 +212,8 @@
 
 .ticker-tape::before {
   left: 0;
-  background: linear-gradient(90deg, var(--navy-900), transparent);
+  width: 150px;
+  background: linear-gradient(90deg, var(--navy-900) 40%, transparent);
 }
 
 .ticker-tape::after {
@@ -216,38 +222,134 @@
 }
 
 .ticker-tape__track {
-  display: inline-flex;
-  gap: var(--sp-6);
-  padding: var(--sp-3) 0;
-  animation: ticker 42s linear infinite;
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
 }
 
-.ticker-tape:hover .ticker-tape__track {
+.ticker-tape:hover .ticker-tape__item {
   animation-play-state: paused;
 }
 
 .ticker-tape__item {
+  position: absolute;
+  top: 5px;
+  left: 0;
+  min-width: 190px;
+  height: 31px;
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 7px;
+  padding: 0 11px 0 9px;
+  border: 1px solid rgba(120, 160, 196, 0.13);
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(13, 41, 67, 0.95), rgba(5, 27, 47, 0.95));
+  box-shadow: 0 4px 14px rgba(0, 7, 16, 0.18);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: 11px;
   color: var(--text-on-navy-soft);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  animation: ticker-card-flow var(--ticker-duration) linear infinite;
+  animation-delay: var(--ticker-delay);
 }
 
 .ticker-tape__item .pair {
   font-family: var(--font-sans);
   color: #fff;
   font-weight: var(--fw-semibold);
+  font-size: 12px;
 }
 
-@keyframes ticker {
-  from {
-    transform: translateX(0);
+.ticker-tape__status {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 8px rgba(240, 120, 120, 0.45);
+}
+
+.ticker-tape__status--up {
+  background: var(--teal-500);
+  box-shadow: 0 0 8px rgba(37, 188, 168, 0.55);
+}
+
+.ticker-tape__price { color: #8fa4b8; }
+
+.ticker-tape__spark {
+  width: 38px;
+  height: 15px;
+  margin-left: 2px;
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 3px rgba(240, 120, 120, 0.2));
+}
+
+.ticker-tape__spark--up {
+  stroke: var(--teal-500);
+  filter: drop-shadow(0 0 3px rgba(37, 188, 168, 0.25));
+}
+
+.ticker-tape__label {
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 0;
+  width: 118px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 16px;
+  color: var(--gold-400);
+  background: linear-gradient(90deg, var(--navy-900) 76%, transparent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ticker-tape__label span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal-500);
+  box-shadow: 0 0 0 4px rgba(37, 188, 168, 0.1), 0 0 9px rgba(37, 188, 168, 0.7);
+  animation: ticker-live-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes ticker-card-flow {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--ticker-start), 0, 0) rotateY(0deg) rotateZ(0deg) scale(0.94);
   }
-  to {
-    transform: translateX(-50%);
+  3% { opacity: 1; }
+  82% {
+    opacity: 1;
+    transform: translate3d(24px, 0, 0) rotateY(0deg) rotateZ(0deg) scale(1);
   }
+  91% {
+    opacity: 0.92;
+    transform: translate3d(-105px, 0, -28px) rotateY(-48deg) rotateZ(-4deg) scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-280px, 0, -100px) rotateY(-112deg) rotateZ(-9deg) scale(0.7);
+  }
+}
+
+@keyframes ticker-live-pulse {
+  50% { opacity: 0.45; transform: scale(0.78); }
+}
+
+@media (max-width: 640px) {
+  .ticker-tape { --ticker-start: calc(100vw + 700px); }
+  .ticker-tape__label { width: 20px; padding-left: 7px; color: transparent; }
+  .ticker-tape::before { width: 42px; }
+  .ticker-tape__item { min-width: 128px; padding-inline: 8px; }
+  .ticker-tape__price,
+  .ticker-tape__spark { display: none; }
 }
 
 /* ---------- Trust strip — divider เส้นบาง ---------- */
@@ -928,7 +1030,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ticker-tape__item),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;

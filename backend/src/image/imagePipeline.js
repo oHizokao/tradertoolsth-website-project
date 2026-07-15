@@ -44,6 +44,26 @@ export const ImageStatus = Object.freeze({
   FAILED: "failed",
 });
 
+export function makeOwnedPlaceholder(news, keywords = []) {
+  const haystack = `${news?.category || ""} ${news?.originalTitle || ""}`.toLowerCase();
+  const kind = /gold|silver|bullion|precious|ทอง|เงิน/.test(haystack)
+    ? "gold"
+    : /fed|econom|inflation|rate|เศรษฐ|ดอกเบี้ย/.test(haystack)
+      ? "economy"
+      : "market";
+  return {
+    status: ImageStatus.SELECTED,
+    reviewRequired: false,
+    imageUrl: `/news-assets/${kind}.svg`,
+    imageSource: "TraderToolsTH",
+    imageAuthor: "TraderToolsTH Design",
+    imageAuthorUrl: "/",
+    imageLicense: "Owned artwork",
+    imageSourceUrl: `/news-assets/${kind}.svg`,
+    imageSearchKeywords: keywords,
+  };
+}
+
 /**
  * สร้าง metadata สำหรับ fallback (ไม่มีรูปจริง)
  * @param {string[]} keywords keywords ที่พยายามค้นหา
@@ -82,6 +102,11 @@ export async function findImageForNews(news, opts = {}) {
   // ---- 1) สร้าง keywords ----
   const keywords = buildImageKeywords(news);
   log.info(`image search: ${keywords.length} keywords for "${(news.originalTitle || "").slice(0, 60)}"`);
+
+  if (!config.pexels?.apiKey && typeof opts._mockSearchFn !== "function") {
+    log.info("Pexels key unavailable; using owned TraderToolsTH artwork");
+    return makeOwnedPlaceholder(news, keywords);
+  }
 
   // ---- 2) ค้นหาทุก keyword, รวม photos ----
   const allPhotos = [];

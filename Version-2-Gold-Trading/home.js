@@ -157,7 +157,7 @@
       </section>
       <section class="v2-dashboard"><div class="v2-shell v2-dashboard-grid">${newsPanel()}${calendarPanel()}${toolsPanel()}</div>${featureStrip()}</section>
     </main>`;
-    document.getElementById("app").innerHTML = `${TT.layout.navbar("home")}${main}`;
+    document.getElementById("app").innerHTML = `${TT.layout.navbar("home")}${TT.layout.ticker()}${main}`;
     document.title = "TraderToolsTH — Gold Trading Desk";
     TT.layout.initNavbar();
     drawSignalSpark();

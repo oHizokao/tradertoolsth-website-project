@@ -21,10 +21,10 @@
    ============================================================ */
 
 import { logger } from "../utils/logger.js";
-import { NewsStatus } from "../utils/schema.js";
+import { NewsStatus, PublishStatus } from "../utils/schema.js";
 import { classifySource, SourcePolicy } from "./sourcePolicy.js";
-import { rewriteNews } from "./rewriter.js";
-import { validateRewritten } from "./validator.js";
+import { rewriteNews, correctRewrite } from "./rewriter.js";
+import { reconcileNumberValidation } from "./validator.js";
 import { buildValidatorMessages } from "./prompts.js";
 import { chatJson } from "./openai.client.js";
 
@@ -75,7 +75,7 @@ export async function processNews(news, opts = {}) {
   const result = {
     ...news,
     validationStatus: NewsStatus.PROCESSING,
-    publishStatus: NewsStatus.PROCESSING,
+    publishStatus: PublishStatus.PROCESSING,
   };
 
   // ---- 1) Source policy gate ----
@@ -85,7 +85,7 @@ export async function processNews(news, opts = {}) {
   if (policy.policy !== SourcePolicy.TRUSTED) {
     result.validationStatus = NewsStatus.NEEDS_REVIEW;
     // QC Phase 5: publishStatus แยกจาก validationStatus — คง PROCESSING (ห้าม mirror, ห้าม PUBLISHED)
-    result.publishStatus = NewsStatus.PROCESSING;
+    result.publishStatus = PublishStatus.DRAFT;
     result.aiConfidence = null;
     result.pipelineNote = `source_policy:${policy.reason} — รอนโยบายสิทธิ์การใช้งาน`;
     log.info(
@@ -97,7 +97,7 @@ export async function processNews(news, opts = {}) {
   // ---- 2) ต้องมีเนื้อหาเต็ม ----
   if (!news.originalContent || news.originalContent.length < 100) {
     result.validationStatus = NewsStatus.NEEDS_REVIEW;
-    result.publishStatus = NewsStatus.PROCESSING; // QC Phase 5: แยกจาก validation
+    result.publishStatus = PublishStatus.DRAFT;
     result.pipelineNote = "missing_or_short_content — รอตรวจสอบเนื้อหา";
     log.warn(`SKIP AI: originalContent สั้นเกินไป (${news.originalContent?.length || 0} chars)`);
     return {
@@ -116,14 +116,14 @@ export async function processNews(news, opts = {}) {
   });
   if (!rewrite.ok) {
     result.validationStatus = NewsStatus.FAILED;
-    result.publishStatus = NewsStatus.PROCESSING; // QC Phase 5: แยกจาก validation
+    result.publishStatus = PublishStatus.FAILED;
     result.pipelineNote = `rewrite_failed: ${rewrite.error}`;
     log.error(`rewrite failed: ${rewrite.error}`);
     return { ok: false, skipped: false, reason: "rewrite_failed", error: rewrite.error, news: result };
   }
 
   // ใส่ข้อมูลที่เรียบเรียงแล้วเข้า news
-  const w = rewrite.rewritten;
+  let w = rewrite.rewritten;
   result.thaiTitle = w.thaiTitle;
   result.thaiSummary = w.thaiSummary;
   result.thaiContent = w.thaiContent;
@@ -132,13 +132,42 @@ export async function processNews(news, opts = {}) {
   result.mentionedNumbers = w.mentionedNumbers;
   result.imageSearchKeywords = w.imageSearchKeywords || [];
   result.credit = rewrite.credit;
-  const localCheck = rewrite.localCheck;
+  let localCheck = rewrite.localCheck;
   const isMockRun = rewrite.mock === true;
+
+  // One deterministic correction attempt for invented/changed numbers.
+  let correctionAttempted = false;
+  if (
+    localCheck.hasUnexpectedNumbers &&
+    !isMockRun &&
+    (opts._testRewriteResponse === undefined || opts._testCorrectionResponse !== undefined)
+  ) {
+    correctionAttempted = true;
+    const correction = await correctRewrite(news, w, {
+      unexpectedNumbers: localCheck.numberCheck.unexpected,
+      instruction: "ลบหรือแก้ตัวเลขที่ไม่มีในต้นฉบับ โดยคงข้อเท็จจริงเดิม",
+    }, {
+      forceMock: opts.forceMock,
+      requireReal: opts.requireReal,
+      _testCorrectionResponse: opts._testCorrectionResponse,
+    });
+    if (correction.ok) {
+      w = correction.rewritten;
+      localCheck = correction.localCheck;
+      result.thaiTitle = w.thaiTitle;
+      result.thaiSummary = w.thaiSummary;
+      result.thaiContent = w.thaiContent;
+      result.marketFactors = w.marketFactors;
+      result.keyFacts = w.keyFacts;
+      result.mentionedNumbers = w.mentionedNumbers;
+      result.imageSearchKeywords = w.imageSearchKeywords || [];
+    }
+  }
 
   // ---- 4) Local gate: ถ้าพบคำต้องห้าม → rejected ทันที ----
   if (!localCheck.passesLocalGate) {
     result.validationStatus = NewsStatus.REJECTED;
-    result.publishStatus = NewsStatus.PROCESSING; // QC Phase 5: แยกจาก validation
+    result.publishStatus = PublishStatus.REJECTED;
     result.aiConfidence = localCheck.localConfidence;
     result.pipelineNote = `rejected_local: banned=${localCheck.bannedWords.join(",")} advice=${localCheck.adviceWords.join(",")}`;
     log.error(
@@ -193,10 +222,11 @@ export async function processNews(news, opts = {}) {
         aiValidation = shape.normalized;
         result.aiValidationRaw = aiValidation;
 
-        // QC: hard gate — isValid === false → ห้าม validated
-        if (aiValidation.isValid === false) {
-          aiGateBlockReason = "ai_validator_invalid";
-        }
+        const numberVerdict = reconcileNumberValidation(aiValidation, localCheck.numberCheck);
+        aiValidation.numbersMatch = numberVerdict.numbersMatch;
+        aiValidation.numberMismatches = numberVerdict.realAiMismatches;
+        aiValidation.numberCheckSource = "deterministic_local";
+        aiValidation.aiNumberVerdictIgnored = numberVerdict.aiDisagreed;
         // QC: หาก AI พบปัญหาใดในนี้ → ห้าม validated (อย่างน้อย needs_review)
         const bannedFound =
           Array.isArray(aiValidation.bannedWordsFound) &&
@@ -204,10 +234,15 @@ export async function processNews(news, opts = {}) {
         if (bannedFound) aiGateBlockReason = "ai_banned_words";
         if (aiValidation.investmentAdviceFound === true)
           aiGateBlockReason = "ai_investment_advice";
-        if (aiValidation.numbersMatch === false)
+        if (!numberVerdict.numbersMatch)
           aiGateBlockReason = "ai_numbers_mismatch";
         if (aiValidation.addedInformationFound === true)
           aiGateBlockReason = "ai_added_information";
+        // isValid is a summary field and may contradict the detailed evidence.
+        // Block it only when a concrete safety field above supports the verdict.
+        if (aiValidation.isValid === false && !aiGateBlockReason) {
+          aiValidation.isValidAdvisoryIgnored = true;
+        }
         // mock output ของ validator เอง → ห้าม validated
         if (aiValidation.mockOnly === true)
           aiGateBlockReason = "ai_validator_mock_only";
@@ -272,8 +307,14 @@ export async function processNews(news, opts = {}) {
   // QC Phase 5: publishStatus แยกจาก validationStatus อย่างเด็ดขาด
   //   validationStatus=VALIDATED ไม่ทำให้ publishStatus เปลี่ยนเป็น PUBLISHED
   //   publishStatus คง PROCESSING จนกว่าจะมี explicit publish action (Phase ถัดไป)
-  result.publishStatus = NewsStatus.PROCESSING;
-  result.pipelineNote = note;
+  result.publishStatus = status === NewsStatus.VALIDATED
+    ? PublishStatus.READY
+    : status === NewsStatus.REJECTED
+      ? PublishStatus.REJECTED
+      : status === NewsStatus.FAILED
+        ? PublishStatus.FAILED
+        : PublishStatus.DRAFT;
+  result.pipelineNote = `${note}${correctionAttempted ? "; correction_attempted=1" : ""}`;
 
   log.info(
     `pipeline done: conf=${confidence} status=${status} | ${result.thaiTitle}`.slice(0, 110),

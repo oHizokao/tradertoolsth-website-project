@@ -514,10 +514,24 @@ describe("QC รอบ 2 — Finding 2: AI validator schema required + fail clos
     assert.notEqual(r.news.validationStatus, "validated");
   });
 
-  test("validator numbersMatch=false → ห้าม validated", async () => {
+  test("validator numbersMatch=false แต่ไม่มี mismatch จริง → ใช้ local deterministic result", async () => {
     const r = await processNews(makeNews(), {
       _testRewriteResponse: perfectRewrite(),
       _testValidatorResponse: validValidator({ numbersMatch: false }),
+    });
+    assert.equal(r.news.validationStatus, "validated");
+    assert.equal(r.news.aiValidation.aiNumberVerdictIgnored, true);
+  });
+
+  test("validator ระบุ mismatch ที่ค่าแตกต่างจริง → ห้าม validated", async () => {
+    const rewritten = perfectRewrite();
+    rewritten.thaiTitle = "ทองคำอยู่ที่ 4,999.10 ดอลลาร์";
+    const r = await processNews(makeNews(), {
+      _testRewriteResponse: rewritten,
+      _testValidatorResponse: validValidator({
+        numbersMatch: false,
+        numberMismatches: [{ original: "4,089.10", rewritten: "4,999.10" }],
+      }),
     });
     assert.notEqual(r.news.validationStatus, "validated");
   });

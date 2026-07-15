@@ -217,6 +217,45 @@ export function createNewsRepository(db) {
     return info.changes > 0;
   }
 
+  const updateReviewedStmt = db.prepare(
+    `UPDATE news SET
+      thai_title = ?, thai_summary = ?, thai_content = ?, market_factors = ?,
+      key_facts = ?, mentioned_numbers = ?, credit = ?,
+      validation_status = 'validated', publish_status = 'ready',
+      ai_confidence = ?, ai_validation = ?, pipeline_note = ?,
+      image_url = ?, image_source = ?, image_author = ?, image_author_url = ?,
+      image_license = ?, image_source_url = ?, image_status = ?,
+      image_review_required = ?, validated_at = ?, published_at = NULL, updated_at = ?
+     WHERE id = ?`
+  );
+  function saveManualReview(id, reviewed, localCheck, imageMeta, audit) {
+    const now = new Date().toISOString();
+    const validation = {
+      isValid: true,
+      method: "manual_source_review_plus_deterministic_checks",
+      reviewer: audit.reviewer,
+      sourceCheckedAt: now,
+      numberCheck: localCheck.numberCheck,
+      bannedWordsFound: localCheck.bannedWords,
+      investmentAdviceFound: localCheck.adviceWords.length > 0,
+      confidence: 100,
+      notes: audit.notes || "ตรวจเทียบต้นฉบับแล้ว",
+    };
+    const info = updateReviewedStmt.run(
+      reviewed.thaiTitle, reviewed.thaiSummary,
+      JSON.stringify(reviewed.thaiContent || []), reviewed.marketFactors || "",
+      JSON.stringify(reviewed.keyFacts || []), JSON.stringify(reviewed.mentionedNumbers || []),
+      reviewed.credit || "อ้างอิงข้อมูลจาก Kitco News — เรียบเรียงใหม่โดย TraderToolsTH",
+      100, JSON.stringify(validation),
+      `manual_source_review:${audit.reviewer}`,
+      imageMeta.imageUrl, imageMeta.imageSource, imageMeta.imageAuthor,
+      imageMeta.imageAuthorUrl, imageMeta.imageLicense, imageMeta.imageSourceUrl,
+      imageMeta.status, imageMeta.reviewRequired ? 1 : 0,
+      now, now, id
+    );
+    return info.changes > 0;
+  }
+
   /** มี image metadata ที่ใช้ได้แล้ว (กันเรียก Pexels ซ้ำ) */
   const hasUsableImageStmt = db.prepare(
     "SELECT image_url FROM news WHERE id = ?"
@@ -283,6 +322,28 @@ export function createNewsRepository(db) {
       .get().n;
   }
 
+  /**
+   * ดึงข่าว published ทั้งหมด (เรียงใหม่ → เก่า) โดยไม่ตัด limit/offset
+   * ใช้สำหรับ public API เพื่อให้ category filter + pagination คำนวณได้ถูกต้อง
+   * หากแค่ listPublished(limit,offset) ก่อน filter → offset จะนับจากข่าวทุกหมวด ทำให้ผลลัพธ์ผิด
+   *
+   * QC:
+   * - เฉพาะ publish_status='published' AND validation_status='validated'
+   * - เรียง COALESCE(published_at, original_published_at, created_at) DESC
+   * - draft / ready / rejected / processing / failed ไม่ถูกส่งออก
+   */
+  function listAllPublished() {
+    const rows = db
+      .prepare(
+        `SELECT * FROM news
+         WHERE publish_status = 'published'
+           AND validation_status = 'validated'
+         ORDER BY COALESCE(published_at, original_published_at, created_at) DESC`
+      )
+      .all();
+    return rows.map(rowToNews);
+  }
+
   // ---- สำหรับ test/debug ----
   function clearAll() {
     db.prepare("DELETE FROM news").run();
@@ -301,6 +362,7 @@ export function createNewsRepository(db) {
     listByStatus,
     listByPublishStatus,
     listPublished,
+    listAllPublished,
     listAll,
     countByStatus,
     countAll,
@@ -309,6 +371,7 @@ export function createNewsRepository(db) {
     updateValidationStatus,
     updatePublishStatus,
     updateImage,
+    saveManualReview,
     hasUsableImage,
     // debug
     clearAll,

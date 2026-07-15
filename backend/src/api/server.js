@@ -1,7 +1,11 @@
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { toPublicNews, publicCategory } from "./publicNews.js";
+import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
+import { validateRewritten } from "../ai/validator.js";
+import { makeOwnedPlaceholder } from "../image/imagePipeline.js";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -35,7 +39,21 @@ function clampInt(value, fallback, min, max) {
 
 function isAuthorized(req, token) {
   if (!token) return false;
-  return req.headers.authorization === `Bearer ${token}`;
+  const actual = Buffer.from(req.headers.authorization || "");
+  const expected = Buffer.from(`Bearer ${token}`);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function readJson(req, maxBytes = 32_768) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error("request_too_large");
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
 function resolveStaticPath(pathname, projectRoot, siteVersion) {
@@ -44,6 +62,24 @@ function resolveStaticPath(pathname, projectRoot, siteVersion) {
   if (pathname === "/") {
     base = projectRoot;
     relative = "index.html";
+  } else if (
+    pathname === "/Version-1-Premium-Dashboard" ||
+    pathname === "/Version-1-Premium-Dashboard/"
+  ) {
+    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
+    relative = "home.html";
+  } else if (pathname.startsWith("/Version-1-Premium-Dashboard/")) {
+    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
+    relative = pathname.slice("/Version-1-Premium-Dashboard/".length);
+  } else if (
+    pathname === "/Version-2-Gold-Trading" ||
+    pathname === "/Version-2-Gold-Trading/"
+  ) {
+    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    relative = "home.html";
+  } else if (pathname.startsWith("/Version-2-Gold-Trading/")) {
+    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    relative = pathname.slice("/Version-2-Gold-Trading/".length);
   } else if (pathname === "/v1" || pathname === "/v1/") {
     base = resolve(projectRoot, "Version-1-Premium-Dashboard");
     relative = "home.html";
@@ -56,6 +92,9 @@ function resolveStaticPath(pathname, projectRoot, siteVersion) {
   } else if (pathname.startsWith("/v2/")) {
     base = resolve(projectRoot, "Version-2-Gold-Trading");
     relative = pathname.slice(4);
+  } else if (pathname.startsWith("/news-assets/")) {
+    base = resolve(projectRoot, "shared-assets", "news");
+    relative = pathname.slice("/news-assets/".length);
   } else {
     base = resolve(
       projectRoot,
@@ -110,14 +149,32 @@ export function createRequestHandler(options) {
       }
 
       if (req.method === "GET" && pathname === "/api/news") {
+        // category เป็น derived field (gold/forex จาก keyword) → filter ใน JS ทั้งหมด
+        // แล้วค่อย apply limit/offset เพื่อให้ pagination ถูกต้อง
         const category = url.searchParams.get("category") || "all";
-        const limit = clampInt(url.searchParams.get("limit"), 50, 1, 100);
-        const offset = clampInt(url.searchParams.get("offset"), 0, 0, 10000);
-        const all = repo.listPublished(500, 0);
+        // ค่าเริ่มต้น limit=50 (ก่อนหน้านี้เป็น 50 เช่นกัน) สูงสุด 50 ป้องกันดึงมากเกินไป
+        const limit = clampInt(url.searchParams.get("limit"), 50, 1, 50);
+        const offset = clampInt(url.searchParams.get("offset"), 0, 0, 100000);
+        // ดึงข่าว published ทั้งหมด (เรียงใหม่→เก่า, validated เท่านั้น)
+        const all = repo.listAllPublished();
         const filtered = category === "all"
           ? all
           : all.filter((item) => publicCategory(item) === category);
-        return json(res, 200, filtered.slice(offset, offset + limit).map(toPublicNews));
+        const total = filtered.length;
+        const page = filtered.slice(offset, offset + limit).map(toPublicNews);
+        const hasMore = offset + page.length < total;
+
+        // รองรับ client เก่าที่คาดหวัง plain array เดิม: ?format=array
+        // ค่าเริ่มต้น (ไม่ส่ง format) = envelope {items,total,limit,offset,hasMore}
+        const asArray = url.searchParams.get("format") === "array";
+        if (asArray) return json(res, 200, page);
+        return json(res, 200, {
+          items: page,
+          total,
+          limit,
+          offset,
+          hasMore,
+        });
       }
 
       if (req.method === "GET" && pathname.startsWith("/api/news/")) {
@@ -149,10 +206,71 @@ export function createRequestHandler(options) {
           }));
           return json(res, 200, rows);
         }
+        if (req.method === "GET" && pathname.startsWith("/api/admin/news/")) {
+          const id = decodeURIComponent(pathname.slice("/api/admin/news/".length));
+          const item = repo.getById(id);
+          if (!item) return json(res, 404, { error: "news_not_found" });
+          return json(res, 200, item);
+        }
+        const reviewMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/review$/);
+        if (req.method === "POST" && reviewMatch) {
+          const id = decodeURIComponent(reviewMatch[1]);
+          const item = repo.getById(id);
+          if (!item) return json(res, 404, { error: "news_not_found" });
+          const body = await readJson(req);
+          if (body.sourceChecked !== true || !body.reviewer) {
+            return json(res, 400, { error: "source_check_and_reviewer_required" });
+          }
+          const reviewed = body.news;
+          if (!reviewed?.thaiTitle || !Array.isArray(reviewed.thaiContent) || !reviewed.thaiContent.length) {
+            return json(res, 400, { error: "reviewed_news_schema_invalid" });
+          }
+          const localCheck = validateRewritten(item, reviewed);
+          if (!localCheck.canAutoValidate) {
+            return json(res, 409, { error: "deterministic_quality_gate", localCheck });
+          }
+          const image = makeOwnedPlaceholder({ ...item, ...reviewed }, reviewed.imageSearchKeywords || []);
+          repo.saveManualReview(id, reviewed, localCheck, image, {
+            reviewer: String(body.reviewer).slice(0, 80),
+            notes: String(body.notes || "").slice(0, 500),
+          });
+          return json(res, 200, { ok: true, id, validationStatus: "validated", publishStatus: "ready", localCheck });
+        }
         if (req.method === "POST" && pathname === "/api/admin/run") {
           if (!updater) return json(res, 503, { error: "updater_unavailable" });
-          const result = await updater.run();
+          const body = await readJson(req);
+          const result = await updater.run({
+            maxPerRun: clampInt(body.maxPerRun, 3, 1, 10),
+            autoPublish: false,
+          });
           return json(res, result.skipped ? 202 : 200, result);
+        }
+        const actionMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/(approve|reject|publish)$/);
+        if (req.method === "POST" && actionMatch) {
+          const id = decodeURIComponent(actionMatch[1]);
+          const action = actionMatch[2];
+          const item = repo.getById(id);
+          if (!item) return json(res, 404, { error: "news_not_found" });
+          if (action === "reject") {
+            const body = await readJson(req);
+            repo.updateValidationStatus(id, "rejected", `manual_reject:${String(body.reason || "ไม่ผ่านการตรวจ").slice(0, 300)}`);
+            repo.updatePublishStatus(id, "rejected");
+            return json(res, 200, { ok: true, id, validationStatus: "rejected", publishStatus: "rejected" });
+          }
+          if (action === "approve") {
+            if (item.validationStatus !== "validated") {
+              return json(res, 409, { error: "quality_validation_required", validationStatus: item.validationStatus });
+            }
+            repo.updatePublishStatus(id, "ready");
+            return json(res, 200, { ok: true, id, publishStatus: "ready" });
+          }
+          if (!isReadyForAutoPublish(item)) {
+            return json(res, 409, { error: "publish_guard_rejected" });
+          }
+          const published = repo.updatePublishStatus(id, "published");
+          return json(res, published ? 200 : 409, published
+            ? { ok: true, id, publishStatus: "published" }
+            : { error: "publish_update_rejected" });
         }
       }
 

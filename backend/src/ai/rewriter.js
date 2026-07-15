@@ -10,7 +10,7 @@
 
 import { logger } from "../utils/logger.js";
 import { chatJson } from "./openai.client.js";
-import { buildRewriterMessages, CREDIT_LINE } from "./prompts.js";
+import { buildRewriterMessages, buildCorrectionMessages, CREDIT_LINE } from "./prompts.js";
 import { validateRewritten } from "./validator.js";
 
 const log = logger.make("rewriter");
@@ -103,4 +103,29 @@ export async function rewriteNews(news, opts = {}) {
     credit: CREDIT_LINE,
     mock: result.mock,
   };
+}
+
+export async function correctRewrite(news, rewritten, issues, opts = {}) {
+  try {
+    let result;
+    if (opts._testCorrectionResponse !== undefined) {
+      if (opts._testCorrectionResponse === null) throw new Error("_test_injected_correction_failure");
+      result = { json: opts._testCorrectionResponse, mock: false };
+    } else {
+      result = await chatJson({
+        messages: buildCorrectionMessages(news, rewritten, issues),
+        temperature: 0.1,
+        responseFormat: "json",
+        forceMock: opts.forceMock,
+        requireReal: opts.requireReal,
+      });
+    }
+    const fixed = result.json;
+    if (!fixed?.thaiTitle || !Array.isArray(fixed.thaiContent)) {
+      throw new Error("AI correction returned invalid schema");
+    }
+    return { ok: true, rewritten: fixed, localCheck: validateRewritten(news, fixed), mock: result.mock };
+  } catch (error) {
+    return { ok: false, error: error.message, rewritten, localCheck: validateRewritten(news, rewritten), mock: false };
+  }
 }

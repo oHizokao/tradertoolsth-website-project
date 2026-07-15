@@ -14,6 +14,15 @@ export const NewsStatus = Object.freeze({
   FAILED: "failed",
 });
 
+export const PublishStatus = Object.freeze({
+  PROCESSING: "processing",
+  DRAFT: "draft",
+  READY: "ready",
+  PUBLISHED: "published",
+  REJECTED: "rejected",
+  FAILED: "failed",
+});
+
 /**
  * สร้าง object ข่าวเปล่าที่มีทุกฟิลด์ตาม schema
  * ค่า default ปลอดภัย (string ว่าง / null) เพื่อให้ validation ตรวจได้

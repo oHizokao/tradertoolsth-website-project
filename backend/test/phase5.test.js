@@ -461,7 +461,7 @@ describe("8. mapper round-trip", () => {
 // 9. newsPipeline integration — REJECTED/FAILED ไม่เรียก image
 // ============================================================
 describe("9. newsPipeline image gate", () => {
-  test("VALIDATED → เรียก image + saved + publishStatus=processing", async () => {
+  test("VALIDATED → เรียก image + saved + publishStatus=ready", async () => {
     const db = createTestDb();
     const repo = createNewsRepository(db);
     const r = await processAndSaveNews(
@@ -477,7 +477,7 @@ describe("9. newsPipeline image gate", () => {
       }
     );
     assert.equal(r.news.validationStatus, "validated");
-    assert.equal(r.news.publishStatus, "processing");
+    assert.equal(r.news.publishStatus, "ready");
     assert.equal(r.news.publishStatus !== "published", true);
     assert.equal(r.imageSkipped, false);
     assert.ok(r.news.imageUrl);

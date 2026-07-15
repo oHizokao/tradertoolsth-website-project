@@ -80,19 +80,29 @@ TT.layout = (function () {
 
   // ---------- Ticker tape ----------
   function ticker() {
-    const items = (TT.ticker || [])
+    const source = TT.ticker || [];
+    const duration = Math.max(32, source.length * 5);
+    const items = source
       .map(
-        (t) => `<span class="ticker-tape__item">
+        (t, index) => `<span class="ticker-tape__item" style="--ticker-delay:-${(
+          (index * duration) /
+          Math.max(source.length, 1)
+        ).toFixed(2)}s">
+          <span class="ticker-tape__status ticker-tape__status--${t.dir}" aria-hidden="true"></span>
           <span class="pair">${TT.h.esc(t.pair)}</span>
-          <span>${TT.h.esc(t.price)}</span>
+          <span class="ticker-tape__price">${TT.h.esc(t.price)}</span>
           <span class="${t.dir === "up" ? "text-buy" : "text-sell"}">${TT.h.esc(
           t.change
         )}</span>
+          <svg class="ticker-tape__spark ticker-tape__spark--${t.dir}" viewBox="0 0 42 16" aria-hidden="true">
+            <polyline points="1,${t.dir === "up" ? "13 8,10 14,11 20,6 27,8 34,3 41,1" : "2 8,5 14,4 20,9 27,7 34,13 41,15"}" />
+          </svg>
         </span>`
       )
       .join("");
-    return `<div class="ticker-tape" aria-label="ราคาตลาดล่าสุด">
-      <div class="ticker-tape__track">${items}${items}</div>
+    return `<div class="ticker-tape ticker-tape--infographic" aria-label="ราคาตลาดล่าสุด">
+      <div class="ticker-tape__label"><span></span> MARKET LIVE</div>
+      <div class="ticker-tape__track" style="--ticker-duration:${duration}s">${items}</div>
     </div>`;
   }
 
@@ -156,6 +166,8 @@ TT.layout = (function () {
 
   // ---------- Page shell ----------
   function page({ active, main, titleSuffix }) {
+    document.body.classList.remove("home-v2");
+    document.body.classList.add("subpage-v2");
     return `${navbar(active)}
     <main id="main">
       ${main}
