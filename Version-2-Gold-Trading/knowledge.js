@@ -45,7 +45,11 @@
             </div>
           </div>
           <div class="grid grid--3">
-            ${list.map(TT.cards.knowledgeCard).join("")}
+            ${
+              list.length
+                ? list.map(TT.cards.knowledgeCard).join("")
+                : `<div class="state"><div class="state__title">ยังไม่มีบทความในขณะนี้</div></div>`
+            }
           </div>
 
           <div class="divider"></div>

@@ -1,0 +1,21 @@
+# Backend-specific ignores (root .gitignore กันซ้ำด้วย)
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Deps
+node_modules/
+
+# Runtime data & logs
+data/
+logs/
+storage/
+tmp/
+
+# Cache from scraper probes
+*_kitco_*.html
+*_kitco_*.json
+_nextdata.json
+scrape-cache/

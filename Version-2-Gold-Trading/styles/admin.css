@@ -1,0 +1,525 @@
+/* ============================================================
+   Admin Dashboard styles (Phase 10)
+   ------------------------------------------------------------
+   ใช้ design tokens เดียวกับเว็บหลัก + เพิ่ม styles เฉพาะหน้า
+   ============================================================ */
+
+/* ---------- Login card ---------- */
+.admin-login {
+  max-width: 420px;
+  margin: 0 auto;
+}
+.admin-login__card {
+  padding: 32px;
+}
+.admin-login__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-login__desc {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+.admin-login__field {
+  margin-bottom: 16px;
+}
+.admin-login__label {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+.admin-login__input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  background: var(--surface);
+  color: var(--ink-900);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.admin-login__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Status badge ---------- */
+.admin-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1.4;
+}
+.admin-status-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+/* status variants */
+.admin-status-badge--off {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+.admin-status-badge--off .dot { background: var(--ink-400); }
+
+.admin-status-badge--idle {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.admin-status-badge--idle .dot { background: var(--success); }
+
+.admin-status-badge--running {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.admin-status-badge--running .dot {
+  background: var(--accent);
+  animation: admin-pulse 1.2s ease-in-out infinite;
+}
+
+.admin-status-badge--stopped_error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.admin-status-badge--stopped_error .dot { background: var(--danger); }
+
+.admin-status-badge--emergency {
+  background: var(--sell-soft);
+  color: var(--sell);
+}
+.admin-status-badge--emergency .dot { background: var(--sell); }
+
+@keyframes admin-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ---------- Dashboard grid ---------- */
+.admin-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.admin-head__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.admin-section-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  margin: 28px 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- Info grid ---------- */
+.admin-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.admin-info__cell {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.admin-info__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.admin-info__value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.admin-info__value--error {
+  color: var(--danger);
+}
+
+/* ---------- Controls ---------- */
+.admin-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.admin-controls .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ---------- Audit log table ---------- */
+.admin-audit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.admin-audit th,
+.admin-audit td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.admin-audit th {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: var(--fw-medium);
+}
+.admin-audit__stage {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.admin-audit__status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+}
+.admin-audit__status--ok { background: var(--success-soft); color: var(--success); }
+.admin-audit__status--error { background: var(--danger-soft); color: var(--danger); }
+.admin-audit__status--blocked { background: var(--sell-soft); color: var(--sell); }
+.admin-audit__status--skipped { background: var(--surface-muted); color: var(--text-secondary); }
+.admin-audit__reason {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-audit-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* ---------- Notice / error banner ---------- */
+.admin-notice {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.admin-notice--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+.admin-notice--info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.admin-notice--success {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* ---------- Confirm dialog (custom, ไม่ใช้ native confirm ตอน emergency) ---------- */
+.admin-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 26, 48, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+}
+.admin-confirm {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: var(--shadow-lg);
+}
+.admin-confirm__title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-confirm__body {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.admin-confirm__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ---------- Phase 11: News Management ---------- */
+
+/* section title + subtitle */
+.admin-section-title {
+  margin: 28px 0 12px;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+}
+.admin-subtitle {
+  margin: 18px 0 8px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+}
+
+/* reviewer name field */
+.admin-reviewer {
+  margin: 16px 0;
+}
+.admin-reviewer .admin-login__input {
+  max-width: 320px;
+}
+
+/* stats grid */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.admin-stat {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.admin-stat__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.admin-stat__value {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+.admin-stat.ok .admin-stat__value { color: var(--buy); }
+.admin-stat.warn .admin-stat__value { color: var(--gold); }
+.admin-stat.err .admin-stat__value { color: var(--sell); }
+
+/* filter bar */
+.admin-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+/* news table (responsive scroll wrapper) */
+.admin-news-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.admin-news-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  min-width: 720px;
+}
+.admin-news-table th,
+.admin-news-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.admin-news-table th {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+}
+.admin-news-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.admin-news__title {
+  max-width: 280px;
+  font-weight: var(--fw-medium);
+}
+.admin-news__actions {
+  white-space: nowrap;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.admin-news__actions .btn {
+  padding: 4px 8px;
+  font-size: var(--fs-xs);
+}
+.admin-link {
+  color: var(--gold);
+  text-decoration: none;
+}
+.admin-link:hover {
+  text-decoration: underline;
+}
+
+/* status badges */
+.admin-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.admin-badge--ok { color: var(--buy); border-color: var(--buy); }
+.admin-badge--warn { color: var(--gold); border-color: var(--gold); }
+.admin-badge--err { color: var(--sell); border-color: var(--sell); }
+
+/* status badge (auto-pilot) — keep existing classes working */
+.admin-status-badge--off .dot { background: var(--text-muted); }
+
+/* wide modal (detail + review) */
+.admin-confirm--wide {
+  max-width: min(960px, 95vw);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* detail modal */
+.admin-detail {
+  margin: 12px 0;
+}
+.admin-detail__row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  word-break: break-word;
+}
+.admin-detail__key {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.admin-detail__val {
+  word-break: break-word;
+}
+
+/* review modal layout */
+.admin-review {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 12px 0;
+}
+.admin-review__col {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.admin-review__label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+.admin-review__orig-title {
+  font-weight: var(--fw-semibold);
+  margin-bottom: 8px;
+}
+.admin-review__orig-body {
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  max-height: 280px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.admin-review__col .admin-login__label {
+  display: block;
+  margin: 8px 0 4px;
+  font-size: var(--fs-xs);
+}
+.admin-review__col textarea,
+.admin-review__col input {
+  width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}
+.admin-review__notice {
+  margin: 8px 0;
+}
+.admin-review__check {
+  margin: 8px 0;
+  font-size: var(--fs-sm);
+}
+.admin-review__check label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* responsive */
+@media (max-width: 640px) {
+  .admin-head__title { font-size: var(--fs-xl); }
+  .admin-login__card { padding: 20px; }
+  .admin-review {
+    grid-template-columns: 1fr;
+  }
+  .admin-news-table {
+    min-width: 600px;
+  }
+  .admin-news__title {
+    max-width: 180px;
+  }
+}

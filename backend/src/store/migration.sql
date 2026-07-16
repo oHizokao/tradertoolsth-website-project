@@ -1,0 +1,178 @@
+-- ============================================================
+-- Phase 5 — News storage schema (SQLite)
+-- ------------------------------------------------------------
+-- กฎ (QC):
+--   - original_content ไม่ UNIQUE (dedup ผ่าน source_url + duplicate_hash
+--     ใน repository layer แทน)
+--   - validation_status แยกจาก publish_status ตลอด
+--   - เก็บ image URL + metadata เท่านั้น (ห้ามเก็บไฟล์รูป)
+--   - idempotent: ใช้ CREATE ... IF NOT EXISTS ทั้งหมด รันซ้ำได้
+-- ============================================================
+
+-- main news table
+CREATE TABLE IF NOT EXISTS news (
+  -- identity / source
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  source_url TEXT,
+  original_title TEXT,
+  original_author TEXT,
+  original_published_at TEXT,
+  category TEXT,
+  original_content TEXT,           -- ไม่ UNIQUE (dedup ใน repository)
+
+  -- thai rewrite
+  thai_title TEXT,
+  thai_summary TEXT,
+  thai_content TEXT,               -- JSON array ของ paragraphs
+  market_factors TEXT,
+  key_facts TEXT,                  -- JSON array
+  mentioned_numbers TEXT,          -- JSON array
+  credit TEXT,
+
+  -- image (URL + metadata เท่านั้น — ห้ามเก็บไฟล์)
+  image_url TEXT,
+  image_source TEXT,
+  image_author TEXT,
+  image_author_url TEXT,
+  image_license TEXT,
+  image_source_url TEXT,
+  image_search_keywords TEXT,      -- JSON array
+  image_status TEXT,               -- selected/fallback/failed
+  image_review_required INTEGER,   -- 0/1
+
+  -- validation / publish (แยกชัด)
+  validation_status TEXT NOT NULL,
+  publish_status TEXT NOT NULL,
+  ai_confidence INTEGER,
+  ai_validation TEXT,              -- JSON (อาจ NULL)
+  duplicate_hash TEXT,
+  source_policy TEXT,
+  source_policy_reason TEXT,
+
+  -- scraper metadata
+  topics TEXT,                     -- JSON array
+  section TEXT,
+  teaser TEXT,
+  is_external INTEGER,             -- 0/1
+  pipeline_note TEXT,
+
+  -- timestamps แยก
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  validated_at TEXT,               -- NULL จนกว่า validation_status=validated
+  published_at TEXT                -- NULL จนกว่าจะ explicit publish
+);
+
+-- indexes (Phase 5: ตามที่ Codex กำหนด)
+CREATE INDEX IF NOT EXISTS idx_news_source_url ON news(source_url);
+CREATE INDEX IF NOT EXISTS idx_news_dup_hash ON news(duplicate_hash);
+CREATE INDEX IF NOT EXISTS idx_news_validation_status ON news(validation_status);
+CREATE INDEX IF NOT EXISTS idx_news_publish_status ON news(publish_status);
+CREATE INDEX IF NOT EXISTS idx_news_published_at ON news(original_published_at);
+
+-- migration version tracking (idempotent)
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+-- ------------------------------------------------------------
+-- Phase 9 — Auto Pilot tables
+-- ------------------------------------------------------------
+-- auto_pilot_settings: single-row (id='singleton') เก็บสถานะ + config
+--   - enabled: สวิตช์ on/off ระดับ database (ต้อง env+db อนุญาตทั้งคู่)
+--   - status: off | idle | running | stopped_error
+--   - max_per_run: จำนวนข่าวต่อรอบ (default 3)
+--   - emergency_stop: flag หยุดด่วน (รอบที่กำลังรันจะเห็นและหยุดก่อนข่าวถัดไป)
+--   - lock_token: UUID ที่ออกตอน acquire lock (atomic CAS)
+CREATE TABLE IF NOT EXISTS auto_pilot_settings (
+  id TEXT PRIMARY KEY,             -- เสมอ 'singleton'
+  enabled INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'off',
+  max_per_run INTEGER NOT NULL DEFAULT 3,
+  last_run_at TEXT,
+  last_success_at TEXT,
+  last_error TEXT,
+  emergency_stop INTEGER NOT NULL DEFAULT 0,
+  lock_token TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- auto_pilot_audit: append-only log (index ตาม QC)
+CREATE TABLE IF NOT EXISTS auto_pilot_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  news_id TEXT,
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reason TEXT,
+  metadata TEXT,                  -- JSON ที่ไม่มี secret
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ap_audit_run_id ON auto_pilot_audit(run_id);
+CREATE INDEX IF NOT EXISTS idx_ap_audit_news_id ON auto_pilot_audit(news_id);
+CREATE INDEX IF NOT EXISTS idx_ap_audit_stage ON auto_pilot_audit(stage);
+CREATE INDEX IF NOT EXISTS idx_ap_audit_created_at ON auto_pilot_audit(created_at);
+
+-- ------------------------------------------------------------
+-- Phase 8 — source_published_at column
+-- ------------------------------------------------------------
+-- คอลัมน์นี้เก็บเวลาเผยแพร่จริงจาก Kitco (createdAt) ในรูป ISO 8601 UTC
+-- (suffix Z) เช่น "2026-07-15T13:59:00.000Z"
+--
+-- กฎ QC (ห้าม fallback):
+--   - ตัวเรียงข่าวหลักใช้ source_published_at DESC เท่านั้น
+--   - ข่าวที่ source_published_at IS NULL จะไม่ปรากฏใน public listing
+--   - คอลัมน์เพิ่มผ่าน idempotent ALTER TABLE ใน db.js (PRAGMA check)
+--     เพราะ SQLite ไม่รองรับ ADD COLUMN IF NOT EXISTS
+--   - migration ข้อมูลเดิม (จาก original_published_at) ต้องผ่านการ
+--     validate parse ใน db.js ก่อน มิฉะนั้นเก็บ NULL + needs_review
+
+-- ============================================================
+-- Phase 12 — Economic Calendar events (Forex Factory)
+-- ------------------------------------------------------------
+-- กฎ QC:
+--   - ตารางแยกจาก news โดยสมบูรณ์ (ไม่กระทบตาราง news)
+--   - เก็บเวลาเป็น UTC ใน scheduled_at_utc
+--   - source_event_id เป็น deterministic hash (idempotent upsert)
+--   - มี Actual ใหม่ → update record เดิม (ไม่สร้างซ้ำ)
+--   - ทุก query ใช้ parameterized (จัดการใน repository layer)
+--   - idempotent: CREATE ... IF NOT EXISTS ทั้งหมด รันซ้ำได้
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calendar_events (
+  source_event_id TEXT PRIMARY KEY,        -- deterministic hash (ff-<hash16>)
+  source_name TEXT NOT NULL,               -- "Forex Factory"
+  source_url TEXT,
+  event_name TEXT NOT NULL,
+  country TEXT,                            -- รหัสสกุลเงิน (USD/EUR/...)
+  currency TEXT,
+  impact TEXT NOT NULL,                    -- low / medium / high
+  scheduled_at_utc TEXT NOT NULL,          -- ISO UTC (เก็บ UTC เสมอ)
+  scheduled_at_bangkok TEXT,               -- ISO เลื่อน +7 (ช่วย query/filter)
+  actual TEXT,                             -- NULL จนกว่าจะมี Actual
+  forecast TEXT,
+  previous TEXT,
+  revised TEXT,
+  detail_url TEXT,
+  is_tentative INTEGER NOT NULL DEFAULT 0, -- 0/1
+  last_updated TEXT NOT NULL,              -- UTC ISO ทุกครั้งที่ sync
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_scheduled_at_utc ON calendar_events(scheduled_at_utc);
+CREATE INDEX IF NOT EXISTS idx_calendar_currency ON calendar_events(currency);
+CREATE INDEX IF NOT EXISTS idx_calendar_impact ON calendar_events(impact);
+CREATE INDEX IF NOT EXISTS idx_calendar_source_event_id ON calendar_events(source_event_id);
+
+-- sync metadata (single-row: id='singleton') เก็บสถานะ sync ล่าสุด
+-- ใช้สำหรับ stale detection + cache fallback
+CREATE TABLE IF NOT EXISTS calendar_sync_meta (
+  id TEXT PRIMARY KEY,                     -- เสมอ 'singleton'
+  last_sync_at TEXT,                       -- UTC ISO ของ sync สำเร็จล่าสุด
+  last_sync_ok INTEGER NOT NULL DEFAULT 0, -- 0/1
+  last_error TEXT,
+  last_event_count INTEGER,
+  source_name TEXT,
+  updated_at TEXT NOT NULL
+);

@@ -1,6 +1,7 @@
 # TraderToolsTH — Version 2: Gold Trading Desk
 
-เว็บไซต์ชุดที่สองแยกจาก Version 1 โดยสมบูรณ์ ออกแบบตามภาพอ้างอิงด้วยโทน Navy, Gold และ Teal
+เว็บไซต์หลักของ TraderToolsTH ออกแบบตามภาพอ้างอิงด้วยโทน Navy, Gold และ Teal
+(Version 2 เป็นชุดเว็บไซต์เพียงชุดเดียวที่ใช้งาน — Version 1 ถูกนำออกจากระบบแล้ว)
 
 ## Typography
 

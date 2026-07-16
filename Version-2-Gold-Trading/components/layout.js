@@ -21,12 +21,13 @@ TT.layout = (function () {
   function navbar(activeKey = "") {
     const s = SITE();
     const toolsDrop = [
+      { href: "market.html", label: "ภาพรวมตลาด" },
       { href: "calendar.html", label: "ปฏิทินเศรษฐกิจ" },
       { href: "faq.html", label: "คำถามที่พบบ่อย" },
     ];
     const toolsDropdown = `<div class="nav-item--has-drop">
       <a href="calendar.html" class="${
-        ["calendar", "faq"].includes(activeKey) ? "is-active" : ""
+        ["market", "calendar", "faq"].includes(activeKey) ? "is-active" : ""
       }" aria-haspopup="true">
         เครื่องมือ
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -79,20 +80,35 @@ TT.layout = (function () {
   }
 
   // ---------- Ticker tape ----------
+  // Markup คงที่ (ไม่ขึ้นกับข้อมูล) — ข้อมูลจะถูก render ทีหลังโดย initTicker()
+  // ผ่าน subscribe ของ MarketTickerService เพื่อให้ refresh แล้ว motion ไม่ reset
   function ticker() {
-    const items = (TT.ticker || [])
-      .map(
-        (t) => `<span class="ticker-tape__item">
-          <span class="pair">${TT.h.esc(t.pair)}</span>
-          <span>${TT.h.esc(t.price)}</span>
-          <span class="${t.dir === "up" ? "text-buy" : "text-sell"}">${TT.h.esc(
-          t.change
-        )}</span>
-        </span>`
-      )
-      .join("");
-    return `<div class="ticker-tape" aria-label="ราคาตลาดล่าสุด">
-      <div class="ticker-tape__track">${items}${items}</div>
+    return `<div class="ticker-tape ticker-tape--infographic" id="marketTicker" data-ticker-state="loading" aria-label="ราคาตลาดล่าสุด">
+      <div class="ticker-tape__label">
+        <span class="ticker-tape__live-dot" aria-hidden="true"></span>
+        <span class="ticker-tape__live-text">MARKET LIVE</span>
+      </div>
+      <button class="ticker-tape__play" id="tickerPlayBtn" type="button" aria-label="หยุด/เล่นการเลื่อนราคา" aria-pressed="false">
+        <svg class="ticker-tape__play-icon ticker-tape__play-icon--pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        <svg class="ticker-tape__play-icon ticker-tape__play-icon--play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7V5z"/></svg>
+      </button>
+      <div class="ticker-tape__viewport" id="tickerViewport">
+        <div class="ticker-tape__track" id="tickerTrack" aria-live="polite">
+          <!-- skeleton (loading) -->
+          <div class="ticker-tape__skeleton" aria-hidden="true">
+            ${Array.from({ length: 7 })
+              .map(
+                () =>
+                  `<span class="ticker-tape__skeleton-item"><span class="ticker-tape__sk-bar"></span><span class="ticker-tape__sk-bar ticker-tape__sk-bar--w2"></span><span class="ticker-tape__sk-bar ticker-tape__sk-bar--w3"></span></span>`
+              )
+              .join("")}
+          </div>
+        </div>
+      </div>
+      <div class="ticker-tape__meta" id="tickerMeta" aria-live="polite">
+        <span class="ticker-tape__status-badge" data-badge hidden></span>
+        <span class="ticker-tape__updated" data-updated hidden></span>
+      </div>
     </div>`;
   }
 
@@ -148,7 +164,7 @@ TT.layout = (function () {
           <span>© ${year} ${TT.h.esc(
       s.name
     )} — สงวนลิขสิทธิ์</span>
-          <span>Mock Data • ยังไม่ได้เชื่อมระบบจริง</span>
+          <span>ข่าว ปฏิทินเศรษฐกิจ และราคาตลาดเชื่อมต่อข้อมูลจริงแล้ว</span>
         </div>
       </div>
     </footer>`;
@@ -156,6 +172,8 @@ TT.layout = (function () {
 
   // ---------- Page shell ----------
   function page({ active, main, titleSuffix }) {
+    document.body.classList.remove("home-v2");
+    document.body.classList.add("subpage-v2");
     return `${navbar(active)}
     <main id="main">
       ${main}
@@ -189,9 +207,359 @@ TT.layout = (function () {
         }
       });
     }
+
+    // เริ่ม Live Market ticker ทุกครั้งที่หน้า render navbar/ticker
+    // (idempotent: initTicker กัน bind ซ้ำเอง)
+    initTicker();
   }
 
-  return { navbar, footer, ticker, page, logo, initNavbar };
+  // ---------- Ticker behaviour ----------
+  // สังเกต: ทุก element id จะ unique ต่อ document — แต่ ticker อาจถูก render
+  // ใหม่ใน SPA-like flow ของหน้า จึงอ้างผ่าน root element ที่รับเข้ามา
+  const REDUCED_MOTION = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  );
+
+  function fmtPrice(n) {
+    if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+    // ≥ 100: แสดง 2 ทศนิยมเสมอ (มาตรฐานตลาดทอง/forex majors/crypto)
+    // < 100: อนุญาตถึง 5 ทศนิยม (เช่น 1.0892)
+    if (n >= 100) return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 5 });
+  }
+
+  function fmtPct(p) {
+    if (typeof p !== "number" || !Number.isFinite(p)) return "—";
+    const sign = p > 0 ? "+" : "";
+    return sign + p.toFixed(2) + "%";
+  }
+
+  function fmtChange(c) {
+    if (typeof c !== "number" || !Number.isFinite(c)) return "—";
+    const sign = c > 0 ? "+" : "";
+    return sign + c.toFixed(2);
+  }
+
+  function fmtUpdated(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return "อัปเดตเมื่อ " + d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /** สร้าง markup ของ item หนึ่งตัว */
+  function renderItem(t) {
+    const dir = t.direction || "flat";
+    const dirClass = dir === "up" ? "up" : dir === "down" ? "down" : "flat";
+    const changeClass = dir === "up" ? "text-buy" : dir === "down" ? "text-sell" : "text-muted";
+    const sparkPoints =
+      dir === "up"
+        ? "1,13 8,10 14,11 20,6 27,8 34,3 41,1"
+        : dir === "down"
+        ? "1,2 8,5 14,4 20,9 27,7 34,13 41,15"
+        : "1,8 41,8";
+    const label = TT.h.esc(t.label || t.symbol);
+    const symbol = TT.h.esc(t.symbol);
+    return `<span class="ticker-tape__item" data-dir="${dirClass}">
+      <span class="ticker-tape__status ticker-tape__status--${dirClass}" aria-hidden="true"></span>
+      <span class="pair" title="${label}">${symbol}<span class="ticker-tape__label-sm">${label}</span></span>
+      <span class="ticker-tape__price">${TT.h.esc(fmtPrice(t.price))}</span>
+      <span class="${changeClass} ticker-tape__chg">${TT.h.esc(fmtChange(t.change))}</span>
+      <span class="${changeClass} ticker-tape__pct">${TT.h.esc(fmtPct(t.changePercent))}</span>
+      <svg class="ticker-tape__spark ticker-tape__spark--${dirClass}" viewBox="0 0 42 16" aria-hidden="true">
+        <polyline points="${sparkPoints}" />
+      </svg>
+    </span>`;
+  }
+
+  /** ตรวจว่า ticker นี้กำลังเล่นอยู่หรือถูก pause */
+  function tickerStateClass(root) {
+    return root.classList.contains("is-paused") ? "paused" : "playing";
+  }
+
+  /** ตั้ง motion (เปิด/ปิด) โดยไม่ทำลาย transform ปัจจุบัน */
+  function applyMotion(root, track) {
+    const paused = root.classList.contains("is-paused");
+    if (paused) {
+      track.classList.add("is-motion-off");
+      track.style.animationPlayState = "paused";
+    } else {
+      track.classList.remove("is-motion-off");
+      track.style.animationPlayState = "running";
+    }
+  }
+
+  function bindControls(root) {
+    const playBtn = root.querySelector("#tickerPlayBtn");
+    const track = root.querySelector("#tickerTrack");
+    if (!playBtn || !track) return;
+
+    // หยุด motion ตอน focus เท่านั้น เพื่อไม่ให้แถบค้างเมื่อเมาส์/ตัวชี้เปิดหน้าอยู่เหนือ ticker
+    const pause = () => {
+      track.style.animationPlayState = "paused";
+    };
+    const resume = () => {
+      if (root.classList.contains("is-paused")) return; // ผู้ใจตั้ง pause ไว้ → ไม่เล่น
+      track.style.animationPlayState = "running";
+    };
+    root.addEventListener("focusin", pause);
+    root.addEventListener("focusout", resume);
+
+    // ปุ่ม pause/play
+    const togglePlay = () => {
+      const pausedNow = root.classList.toggle("is-paused");
+      playBtn.setAttribute("aria-pressed", pausedNow ? "true" : "false");
+      playBtn.setAttribute(
+        "aria-label",
+        pausedNow ? "เล่นการเลื่อนราคาต่อ" : "หยุดการเลื่อนราคา"
+      );
+      root.setAttribute("data-user-paused", pausedNow ? "true" : "false");
+      applyMotion(root, track);
+    };
+    playBtn.addEventListener("click", togglePlay);
+
+    // ถ้า OS ตั้ง reduced-motion ไว้ → ปิด motion เริ่มต้น และ sync อัตโนมัติ
+    const syncReduced = () => applyMotion(root, track);
+    if (REDUCED_MOTION.addEventListener) {
+      REDUCED_MOTION.addEventListener("change", syncReduced);
+    } else if (REDUCED_MOTION.addListener) {
+      REDUCED_MOTION.addListener(syncReduced);
+    }
+    syncReduced();
+  }
+
+  /**
+   * render รายการลงใน track — ใช้เทคนิค "duplicate track" (สองชุดต่อกัน)
+   * เพื่อให้ marquee เลื่อนต่อเนื่อง loop โดยไม่กระตุก
+   * สำคัญ: ไม่แตะ root เอง ทำให้ position ปัจจุบันไม่ reset
+   */
+  /**
+   * ลายเซ็นของรายการปัจจุบันใน track — ใช้ตรวจว่าข้อมูลใหม่ "เหมือนเดิม"
+   * (เรียง symbol เดียวกัน) หรือไม่ ถ้าเหมือนเดิม → patch ค่าเฉพาะ
+   * โดยไม่ rebuild markup เพื่อไม่ให้ marquee animation reset (ห้ามกระตุก)
+   */
+  function itemsSignature(items) {
+    if (!items || !items.length) return "";
+    // case-insensitive + label-inclusive เพื่อ patch ได้แม้ symbol ส่งต่าง case
+    return items.map((t) => String(t.symbol).toUpperCase()).join("|");
+  }
+
+  /** patch ค่าใน item DOM nodes ที่มีอยู่แล้ว (price/change/pct/status/spark) */
+  function patchItems(root, items) {
+    const rows = root.querySelectorAll(".ticker-tape__row");
+    if (!rows.length) return false;
+    rows.forEach((row) => {
+      const nodes = row.querySelectorAll(".ticker-tape__item");
+      items.forEach((t, i) => {
+        const node = nodes[i];
+        if (!node) return;
+        const dir = t.direction || "flat";
+        const dirClass = dir === "up" ? "up" : dir === "down" ? "down" : "flat";
+        const changeClass = dir === "up" ? "text-buy" : dir === "down" ? "text-sell" : "text-muted";
+        node.setAttribute("data-dir", dirClass);
+        node.setAttribute("class", "ticker-tape__item");
+
+        const status = node.querySelector(".ticker-tape__status");
+        if (status) status.setAttribute("class", "ticker-tape__status ticker-tape__status--" + dirClass);
+
+        const price = node.querySelector(".ticker-tape__price");
+        if (price) price.textContent = fmtPrice(t.price);
+
+        const chg = node.querySelector(".ticker-tape__chg");
+        if (chg) {
+          chg.textContent = fmtChange(t.change);
+          chg.setAttribute("class", changeClass + " ticker-tape__chg");
+        }
+        const pct = node.querySelector(".ticker-tape__pct");
+        if (pct) {
+          pct.textContent = fmtPct(t.changePercent);
+          pct.setAttribute("class", changeClass + " ticker-tape__pct");
+        }
+        const spark = node.querySelector(".ticker-tape__spark");
+        if (spark) {
+          spark.setAttribute(
+            "points",
+            dir === "up"
+              ? "1,13 8,10 14,11 20,6 27,8 34,3 41,1"
+              : dir === "down"
+              ? "1,2 8,5 14,4 20,9 27,7 34,13 41,15"
+              : "1,8 41,8"
+          );
+          spark.setAttribute("class", "ticker-tape__spark ticker-tape__spark--" + dirClass);
+        }
+      });
+    });
+    return true;
+  }
+
+  function renderItems(root, items) {
+    const track = root.querySelector("#tickerTrack");
+    if (!track) return;
+    if (!items || items.length === 0) {
+      track.innerHTML = `<div class="ticker-tape__empty">ยังไม่มีข้อมูลราคา</div>`;
+      applyMotion(root, track);
+      return;
+    }
+
+    // smart-update: ถ้าเรียง symbol เหมือนเดิม → patch ค่า ไม่ rebuild (กัน reset motion)
+    const prevSig = track.getAttribute("data-sig") || "";
+    const sig = itemsSignature(items);
+    if (prevSig === sig) {
+      if (patchItems(root, items)) {
+        applyMotion(root, track);
+        return;
+      }
+    }
+
+    // rebuild (กรณีแรก หรือ symbol เปลี่ยน)
+    const set = items.map(renderItem).join("");
+    // duplicate เพื่อ seamless loop (track กว้างพอเลื่อนต่อ)
+    track.innerHTML = `<div class="ticker-tape__row">${set}</div><div class="ticker-tape__row ticker-tape__row--clone" aria-hidden="true">${set}</div>`;
+    track.setAttribute("data-sig", sig);
+    applyMotion(root, track);
+  }
+
+  function renderStatus(root, snap) {
+    const badge = root.querySelector('[data-badge]');
+    const updated = root.querySelector('[data-updated]');
+    const liveText = root.querySelector(".ticker-tape__live-text");
+    const liveDot = root.querySelector(".ticker-tape__live-dot");
+
+    let badgeText = "";
+    let badgeKind = ""; // "" | "live" | "stale" | "error" | "empty"
+    let updatedText = "";
+    let liveLabel = "MARKET LIVE";
+
+    switch (snap.status) {
+      case "loading":
+        badgeText = ""; // skeleton แสดงอยู่ใน track
+        liveLabel = "กำลังโหลด…";
+        break;
+      case "live":
+        badgeText = "Live";
+        badgeKind = "live";
+        updatedText = fmtUpdated(snap.updatedAt) || fmtUpdated(new Date().toISOString());
+        liveLabel = "MARKET LIVE";
+        break;
+      case "stale":
+        badgeText = "ข้อมูลล่าสุดที่มี";
+        badgeKind = "stale";
+        updatedText = fmtUpdated(snap.updatedAt);
+        liveLabel = "DELAYED";
+        break;
+      case "unavailable":
+        badgeText = "ไม่สามารถอัปเดตราคาได้";
+        badgeKind = "error";
+        liveLabel = "OFFLINE";
+        break;
+      case "empty":
+        badgeText = "ยังไม่มีข้อมูลราคา";
+        badgeKind = "empty";
+        liveLabel = "NO DATA";
+        break;
+      default:
+        break;
+    }
+
+    root.setAttribute("data-ticker-state", snap.status);
+
+    if (badge) {
+      if (badgeText) {
+        badge.textContent = badgeText;
+        badge.setAttribute("class", "ticker-tape__status-badge ticker-tape__status-badge--" + badgeKind);
+        badge.hidden = false;
+      } else {
+        badge.hidden = true;
+      }
+    }
+    if (updated) {
+      if (updatedText) {
+        updated.textContent = updatedText;
+        updated.hidden = false;
+      } else {
+        updated.hidden = true;
+      }
+    }
+    if (liveText) liveText.textContent = liveLabel;
+    if (liveDot) {
+      liveDot.setAttribute(
+        "data-live",
+        snap.status === "live" ? "live" : snap.status === "stale" ? "stale" : "off"
+      );
+    }
+  }
+
+  /**
+   * initTicker — bind ตัวจัดการและ subscribe กับ service
+   * idempotent: ถ้าเรียกซ้ำในหน้าเดียวกัน จะไม่ bind ซ้ำ
+   * auto-inject: ถ้าหน้านี้ยังไม่มี #marketTicker (เช่น admin/contact/faq)
+   * จะแทรก ticker เข้าไปเป็น first child ของ #main (หรือใต้ #navbar)
+   * เพื่อให้ ticker ปรากฏในทุกหน้าที่มี header — โดยไม่แตะ JS ของหน้านั้น
+   */
+  function initTicker() {
+    let root = document.getElementById("marketTicker");
+
+    // Auto-inject: ถ้าหน้านี้ยังไม่มี ticker → สร้างและแทรกใต้ header
+    if (!root) {
+      const main = document.getElementById("main");
+      const navbarEl = document.getElementById("navbar");
+      const tmp = document.createElement("div");
+      tmp.innerHTML = ticker().trim();
+      root = tmp.firstElementChild;
+      if (!root) return;
+
+      if (main && main.firstChild) {
+        // แทรกเป็น first child ของ main (ก่อน section.page)
+        main.insertBefore(root, main.firstChild);
+      } else if (main) {
+        main.appendChild(root);
+      } else if (navbarEl && navbarEl.parentNode) {
+        // fallback: แทรกหลัง navbar
+        navbarEl.parentNode.insertBefore(root, navbarEl.nextSibling);
+      } else {
+        return;
+      }
+    }
+
+    if (root.dataset.ttBound === "1") return; // กัน bind ซ้ำ
+    root.dataset.ttBound = "1";
+
+    bindControls(root);
+
+    // subscribe กับ service → update track + status เท่านั้น (ไม่ re-render root)
+    const svc = TT.MarketTickerService;
+    if (!svc) {
+      renderStatus(root, { status: "unavailable" });
+      return;
+    }
+
+    svc.subscribe((snap) => {
+      renderStatus(root, snap);
+      if (snap.status === "unavailable" || snap.status === "empty") {
+        // ถ้าไม่มีข้อมูลเลย → แสดงข้อความใน track แทน skeleton
+        const track = root.querySelector("#tickerTrack");
+        if (track) {
+          if (snap.status === "empty") {
+            track.innerHTML = `<div class="ticker-tape__empty">ยังไม่มีข้อมูลราคา</div>`;
+          } else {
+            track.innerHTML = `<div class="ticker-tape__empty ticker-tape__empty--error">ไม่สามารถอัปเดตราคาได้</div>`;
+          }
+          applyMotion(root, track);
+        }
+      } else if (snap.items && snap.items.length) {
+        renderItems(root, snap.items);
+      }
+    });
+
+    // เริ่มดึงข้อมูล + auto-refresh
+    svc.start();
+  }
+
+  return { navbar, footer, ticker, page, logo, initNavbar, initTicker };
 })();
 
 TT.navbar = TT.layout.navbar;

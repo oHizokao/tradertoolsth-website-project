@@ -64,7 +64,7 @@
         n.impact
       )} Impact</span>
                   <span>•</span>
-                  <span>${h.formatTime(n.publishedAt)}</span>
+                  <span>${h.formatBangkok(n.sourcePublishedAt || n.publishedAt)}</span>
                   <span>•</span>
                   <span>${n.readMinutes} นาทีอ่าน</span>
                 </div>
@@ -77,6 +77,15 @@
               <img src="${h.esc(n.cover)}" alt="${h.esc(
         n.title
       )}" class="article-cover" onerror="this.style.display='none'">
+
+              ${
+                n.imageCredit && n.imageCredit.source
+                  ? `<p class="text-muted" style="font-size:var(--fs-xs);margin-top:8px">
+                    ภาพ: ${h.esc(n.imageCredit.author || n.imageCredit.source)} / ${h.esc(n.imageCredit.source)}
+                    ${n.imageCredit.sourceUrl ? ` • <a href="${h.esc(n.imageCredit.sourceUrl)}" target="_blank" rel="noopener">ดูที่มาภาพ</a>` : ""}
+                  </p>`
+                  : ""
+              }
 
               <div class="prose">
                 ${renderBody(n.body)}
@@ -102,6 +111,12 @@
                   }
                 </div>
               </div>
+
+              ${
+                n.importedAt
+                  ? `<p class="text-muted" style="font-size:var(--fs-xs);margin-top:8px">${h.formatImported(n.importedAt)}</p>`
+                  : ""
+              }
 
               <div class="alert alert--warn" style="margin-top:16px">
                 <span class="alert__icon">${TT.icon("warning", 18)}</span>
