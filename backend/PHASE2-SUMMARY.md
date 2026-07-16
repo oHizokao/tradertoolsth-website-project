@@ -47,10 +47,12 @@
 ```
 Tradertoolsth Website/
 ├── .gitignore                          ← กัน secret + ข่าวดิบ
-├── index.html                          ← หน้าเลือก V1/V2 (ไม่แตะ)
-├── Version-1-Premium-Dashboard/        ← Static site (ไม่แตะ)
-├── Version-2-Gold-Trading/             ← Static site (ไม่แตะ)
+├── index.html                          ← ส่งต่อไปยังหน้า Home ของ Version 2
+├── Version-2-Gold-Trading/             ← Static site (เว็บไซต์หลัก)
 └── backend/                            ← สร้างใหม่ทั้งหมด
+
+หมายเหตุ (อัปเดต 16 ก.ค. 2026): Version-1-Premium-Dashboard ถูกนำออกจากระบบแล้ว
+ส่วน backup เก็บไว้ที่ backup/version-1-before-removal-20260716/ โปรเจกต์ใช้เฉพาะ Version 2
     ├── package.json                    (Node 22+, dep: cheerio)
     ├── .env.example                    (ทุก env var + default)
     ├── .gitignore

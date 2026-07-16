@@ -69,7 +69,8 @@ if (config.autoPilot.enabled) startAutoPilotScheduler();
 
 const shownHost = address.address === "::" ? "localhost" : address.address;
 log.info(`website ready: http://${shownHost}:${address.port}/`);
-log.info(`V1: http://${shownHost}:${address.port}/v1/ | V2: http://${shownHost}:${address.port}/v2/`);
+log.info(`site: http://${shownHost}:${address.port}/Version-2-Gold-Trading/home.html`);
+log.info(`admin: http://${shownHost}:${address.port}/Version-2-Gold-Trading/admin.html`);
 log.info(`Auto Pilot: env=${config.autoPilot.enabled ? "allowed" : "off"} (DB setting ควบคุมการรันจริง)`);
 
 let stopping = false;

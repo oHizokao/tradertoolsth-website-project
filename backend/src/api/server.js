@@ -163,56 +163,43 @@ function isSecureRequest(req) {
   return !!(req.socket && req.socket.encrypted);
 }
 
-function resolveStaticPath(pathname, projectRoot, siteVersion) {
+// Default website = Version 2 (Gold Trading Desk)
+// Version 1 ถูกนำออกจากระบบแล้ว — เหลือเฉพาะ Version 2 เท่านั้น
+const SITE_DIR = "Version-2-Gold-Trading";
+const SITE_HOME = `/${SITE_DIR}/home.html`;
+
+function resolveStaticPath(pathname, projectRoot) {
   let base;
   let relative;
   if (pathname === "/") {
-    base = projectRoot;
-    relative = "index.html";
-  } else if (
-    pathname === "/Version-1-Premium-Dashboard" ||
-    pathname === "/Version-1-Premium-Dashboard/"
-  ) {
-    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
-    relative = "home.html";
-  } else if (pathname.startsWith("/Version-1-Premium-Dashboard/")) {
-    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
-    relative = pathname.slice("/Version-1-Premium-Dashboard/".length);
+    // Root → redirect ไปยังหน้า Home ของ Version 2 (จัดการที่ handler)
+    return { redirect: SITE_HOME };
   } else if (
     pathname === "/Version-2-Gold-Trading" ||
     pathname === "/Version-2-Gold-Trading/"
   ) {
-    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    base = resolve(projectRoot, SITE_DIR);
     relative = "home.html";
   } else if (pathname.startsWith("/Version-2-Gold-Trading/")) {
-    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    base = resolve(projectRoot, SITE_DIR);
     relative = pathname.slice("/Version-2-Gold-Trading/".length);
-  } else if (pathname === "/v1" || pathname === "/v1/") {
-    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
-    relative = "home.html";
-  } else if (pathname.startsWith("/v1/")) {
-    base = resolve(projectRoot, "Version-1-Premium-Dashboard");
-    relative = pathname.slice(4);
   } else if (pathname === "/v2" || pathname === "/v2/") {
-    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    // alias สั้น → Version 2 home (ความเข้ากันได้)
+    base = resolve(projectRoot, SITE_DIR);
     relative = "home.html";
+  } else if (pathname.startsWith("/v2/")) {
+    base = resolve(projectRoot, SITE_DIR);
+    relative = pathname.slice(4);
   } else if (pathname === "/admin" || pathname === "/admin/") {
     // Phase 10 — Admin Dashboard (V2 design system)
-    base = resolve(projectRoot, "Version-2-Gold-Trading");
+    base = resolve(projectRoot, SITE_DIR);
     relative = "admin.html";
-  } else if (pathname.startsWith("/v2/")) {
-    base = resolve(projectRoot, "Version-2-Gold-Trading");
-    relative = pathname.slice(4);
   } else if (pathname.startsWith("/news-assets/")) {
     base = resolve(projectRoot, "shared-assets", "news");
     relative = pathname.slice("/news-assets/".length);
   } else {
-    base = resolve(
-      projectRoot,
-      siteVersion === "1"
-        ? "Version-1-Premium-Dashboard"
-        : "Version-2-Gold-Trading"
-    );
+    // default fallback: ไฟล์ static ที่ root ของ Version 2
+    base = resolve(projectRoot, SITE_DIR);
     relative = pathname.slice(1);
   }
 
@@ -224,7 +211,18 @@ function resolveStaticPath(pathname, projectRoot, siteVersion) {
 
 async function serveStatic(req, res, options, pathname) {
   if (req.method !== "GET" && req.method !== "HEAD") return false;
-  const filePath = resolveStaticPath(pathname, options.projectRoot, options.siteVersion);
+  const resolved = resolveStaticPath(pathname, options.projectRoot);
+  // root และ version-agnostic entry → ส่งต่อไปยังหน้า Home ของ Version 2
+  if (resolved && resolved.redirect) {
+    res.writeHead(301, {
+      location: resolved.redirect,
+      "cache-control": "no-cache",
+      "x-content-type-options": "nosniff",
+    });
+    res.end();
+    return true;
+  }
+  const filePath = resolved;
   if (!filePath) return false;
   try {
     const info = await stat(filePath);

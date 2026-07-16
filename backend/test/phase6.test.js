@@ -137,7 +137,7 @@ test("scheduler exposes status and supports a manual run", async () => {
   assert.equal(scheduler.stop(), true);
 });
 
-test("HTTP API serves only published news plus both website versions", async () => {
+test("HTTP API serves only published news (Version 2 only)", async () => {
   const db = createTestDb();
   const repo = createNewsRepository(db);
   const published = sampleNews();
@@ -178,15 +178,29 @@ test("HTTP API serves only published news plus both website versions", async () 
   const detail = await fetch(`${base}/api/news/${published.id}`).then((r) => r.json());
   assert.equal(detail.title, published.thaiTitle);
   assert.equal((await fetch(`${base}/api/news/${held.id}`)).status, 404);
-  assert.equal((await fetch(`${base}/v1/news.html`)).status, 200);
+
+  // root "/" → 301 redirect ไปหน้า Home ของ Version 2 (ไม่มี landing เลือก version แล้ว)
+  const rootRes = await fetch(`${base}/`, { redirect: "manual" });
+  assert.equal(rootRes.status, 301);
+  assert.equal(rootRes.headers.get("location"), "/Version-2-Gold-Trading/home.html");
+
+  // Version 2 ยังเสิร์ฟผ่านทั้ง alias สั้นและ path เต็ม
   assert.equal((await fetch(`${base}/v2/news.html`)).status, 200);
-  assert.equal(
-    (await fetch(`${base}/Version-1-Premium-Dashboard/home.html`)).status,
-    200
-  );
   assert.equal(
     (await fetch(`${base}/Version-2-Gold-Trading/home.html`)).status,
     200
+  );
+  // admin dashboard ยังเข้าถึงได้
+  assert.equal(
+    (await fetch(`${base}/Version-2-Gold-Trading/admin.html`)).status,
+    200
+  );
+
+  // Version 1 ถูกนำออกจากระบบแล้ว → ต้องไม่พบ (404)
+  assert.equal((await fetch(`${base}/v1/news.html`)).status, 404);
+  assert.equal(
+    (await fetch(`${base}/Version-1-Premium-Dashboard/home.html`)).status,
+    404
   );
   assert.equal((await fetch(`${base}/api/admin/news`)).status, 503);
 

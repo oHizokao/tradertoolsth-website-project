@@ -1,6 +1,9 @@
 # TraderToolsTH — News Automation Handoff
 
-อัปเดตล่าสุด: 15 กรกฎาคม 2026
+อัปเดตล่าสุด: 16 กรกฎาคม 2026
+
+> ตั้งแต่วันที่ 16 กรกฎาคม 2026 โปรเจกต์ใช้งานเฉพาะ **Version 2** เท่านั้น
+> Version 1 (Premium Dashboard) ถูกนำออกจากระบบและสำรองไว้ที่ `backup/version-1-before-removal-20260716/`
 
 ## สถานะปัจจุบัน
 
@@ -12,7 +15,7 @@
 4. ค้นหารูปจาก Pexels พร้อมเก็บเครดิตและใบอนุญาต
 5. เก็บข่าวใน SQLite และป้องกันการบันทึกข่าวซ้ำ
 6. เผยแพร่อัตโนมัติเฉพาะข่าวที่ผ่านทุก Quality Gate
-7. ให้บริการข่าวผ่าน API และเชื่อมกับหน้าเว็บ V1 และ V2 แล้ว
+7. ให้บริการข่าวผ่าน API และเชื่อมกับหน้าเว็บ Version 2 แล้ว
 8. ตั้งเวลาอัปเดตอัตโนมัติได้ และป้องกันงานสองรอบทำงานชนกัน
 
 ระบบไม่เผยแพร่ข่าวเมื่อ AI เป็นโหมดจำลอง, คะแนนต่ำ, ตัวเลขไม่ตรง, พบคำชี้นำลงทุน, รูปต้องตรวจเพิ่ม, ขาดเครดิต หรือขาดลิงก์ต้นทาง
@@ -25,8 +28,7 @@
 - Dependency audit: `0 vulnerabilities`
 - Live Kitco digest: ผ่าน — อ่าน 240 รายการ, คัดข่าวสดได้ และไม่เหลือ URL ซ้ำ
 - Live Kitco article: ผ่าน — ดึงเนื้อหาบทความจริงได้ 3,603 ตัวอักษร
-- Browser E2E V1: หน้ารวม/หน้าอ่านข่าว/เครดิตรูป/ลิงก์ Kitco ผ่าน ไม่มี console error
-- Browser E2E V2: หน้ารวม/หน้าอ่านข่าว/เครดิตรูป/ลิงก์ Kitco ผ่าน ไม่มี console error
+- Browser E2E Version 2: หน้ารวม/หน้าอ่านข่าว/เครดิตรูป/ลิงก์ Kitco ผ่าน ไม่มี console error
 
 ยังไม่ได้ยิง OpenAI/Pexels แบบเสียเงินจริง เพราะ API key ที่ส่งในแชตถือว่าเปิดเผยแล้วและไม่ควรนำไปใช้ต่อ
 
@@ -67,11 +69,12 @@ npm run news:update
 npm start
 ```
 
-เปิดเว็บ:
+เปิดเว็บ (ทั้งหมดเป็น Version 2 — Gold Trading Desk):
 
-- หน้าเลือกเวอร์ชัน: `http://127.0.0.1:3000/`
-- V1: `http://127.0.0.1:3000/v1/`
-- V2: `http://127.0.0.1:3000/v2/`
+- หน้าหลัก: `http://127.0.0.1:3000/Version-2-Gold-Trading/home.html`
+- ข่าว: `http://127.0.0.1:3000/Version-2-Gold-Trading/news.html`
+- Admin Dashboard: `http://127.0.0.1:3000/Version-2-Gold-Trading/admin.html`
+- Root URL จะถูกส่งตรงไปหน้าหลัก: `http://127.0.0.1:3000/`
 - ตรวจสุขภาพระบบ: `http://127.0.0.1:3000/api/health`
 
 ## เปิดระบบอัตโนมัติ
@@ -123,7 +126,7 @@ npm start
 - `backend/src/pipeline/newsPipeline.js` — AI/Image/Storage pipeline รายข่าว
 - `backend/src/scheduler/newsScheduler.js` — ตั้งเวลาและ run lock
 - `backend/src/api/server.js` — Public/Admin API และ static website server
-- `backend/src/api/publicNews.js` — แปลงข้อมูลฐานข้อมูลเป็น schema ของ V1/V2
+- `backend/src/api/publicNews.js` — แปลงข้อมูลฐานข้อมูลเป็น schema สาธารณะของเว็บ Version 2
 - `backend/src/store/newsRepository.js` — SQLite repository และ publish guard
 - `backend/.env.example` — ตัวอย่าง config ที่ไม่มี secret
 - `backend/test/phase6.test.js` — integration test ของระบบรอบสุดท้าย

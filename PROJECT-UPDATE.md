@@ -1,8 +1,10 @@
 # TraderToolsTH — Project Update
 
-อัปเดตล่าสุด: 15 กรกฎาคม 2026
+อัปเดตล่าสุด: 16 กรกฎาคม 2026
 
 เอกสารนี้สรุปสถานะโปรเจกต์หลังการปรับระบบข่าวและ Version 2 จนถึงปัจจุบัน
+ตั้งแต่วันที่ 16 กรกฎาคม 2026 เป็นต้นไป โปรเจกต์ใช้งานเฉพาะ **Version 2** เท่านั้น
+Version 1 (Premium Dashboard) ถูกนำออกจากระบบและสำรองไว้ที่ `backup/version-1-before-removal-20260716/`
 
 ## สถานะโดยรวม
 
@@ -19,8 +21,7 @@
 
 ข่าวที่เผยแพร่ในระบบตอนนี้มาจาก Kitco และแสดงบน:
 
-- [Version 2 News](http://127.0.0.1:3000/Version-2-Gold-Trading/news.html)
-- [Version 1 News](http://127.0.0.1:3000/Version-1-Premium-Dashboard/news.html)
+- [News](http://127.0.0.1:3000/Version-2-Gold-Trading/news.html)
 
 ข่าว 3 รายการที่นำเข้ารอบทดสอบ:
 

@@ -38,6 +38,11 @@ backend/tmp/**
 **/_nextdata.json
 **/scrape-cache/
 
+# ---- Backups (local safety net — ไม่ commit เข้า source tree) ----
+# เช่น backup/version-1-before-removal-* เก็บไว้เฉพาะเครื่อง
+backup/
+backup/**
+
 # ---- OS / Editor ----
 .DS_Store
 Thumbs.db

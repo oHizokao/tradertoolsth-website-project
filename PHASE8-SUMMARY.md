@@ -63,6 +63,9 @@
 - `news.js` V1: เขียนใหม่ให้มีโครง "3 ข่าวล่าสุด + ข่าวเพิ่มเติม" เหมือน V2 (เดิมเป็น flat list)
 - `home.js` V1: แก้ bug `fetchNews("all", 3)` → `fetchNews("all", {limit:3})` + ใช้ `formatBangkok`
 
+> หมายเหตุ (อัปเดต 16 ก.ค. 2026): รายการ V1 ข้างต้นเป็นประวัติการเปลี่ยนแปลงใน Phase 8
+> ปัจจุบัน Version 1 ถูกนำออกจากระบบแล้ว เหลือเฉพาะ Version 2 (Gold Trading Desk) เท่านั้น
+
 ### Tests
 - `test/phase8.test.js` (ใหม่): 13 tests ครอบคลุม AC ทั้ง 6 ข้อ + helper tests + pagination
 - `test/phase7.test.js`: `makeNews` เพิ่ม `sourcePublishedAt`; แก้ fallback test เป็น no-fallback
