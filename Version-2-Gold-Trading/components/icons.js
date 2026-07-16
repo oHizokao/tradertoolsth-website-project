@@ -21,6 +21,7 @@ TT.icon = function (name, size = 20) {
     x: '<path d="M6 6l12 12M18 6 6 18" stroke-linecap="round"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/>',
     warning: '<path d="M12 3 2 20h20L12 3Z" stroke-linejoin="round"/><path d="M12 9v5M12 17v.5" stroke-linecap="round"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5" stroke-linecap="round"/>',
     star: '<path d="M12 3l2.6 5.5 6 .8-4.4 4.2 1.1 6L12 16.8 6.7 19.5l1.1-6L3.4 9.3l6-.8L12 3Z" stroke-linejoin="round"/>',
     chart: '<path d="M4 4v16h16" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 14l3-4 3 2 4-6" stroke-linecap="round" stroke-linejoin="round"/>',
     trend: '<path d="M3 17l6-6 4 4 8-9" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -46,6 +47,9 @@ TT.icon = function (name, size = 20) {
     layers: '<path d="M12 3 3 8l9 5 9-5-9-5Z" stroke-linejoin="round"/><path d="M3 13l9 5 9-5M3 18l9 5 9-5" stroke-linecap="round" stroke-linejoin="round"/>',
     book: '<path d="M4 5a2 2 0 0 1 2-2h6v18H6a2 2 0 0 0-2 2V5Z" stroke-linejoin="round"/><path d="M20 5a2 2 0 0 0-2-2h-6v18h6a2 2 0 0 1 2 2V5Z" stroke-linejoin="round"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
+    ea: '<rect x="5" y="7" width="14" height="13" rx="2" stroke-linejoin="round"/><path d="M9 3v4M15 3v4M3 12h2M19 12h2M3 16h2M19 16h2" stroke-linecap="round"/><circle cx="9.5" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="13" r="1" fill="currentColor" stroke="none"/><path d="M9.5 16.5h5" stroke-linecap="round"/>',
+    upload: '<path d="M12 16V4M7 9l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round"/>',
+    download: '<path d="M12 4v12M7 11l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 18v0a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v0" stroke-linecap="round" stroke-linejoin="round"/>',
 
     // ============================================================
     // SOCIAL — proper brand icons
