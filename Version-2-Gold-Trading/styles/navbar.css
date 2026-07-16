@@ -285,6 +285,21 @@ body.nav-open .nav-toggle span::after {
   transform: translate(-50%, -50%) rotate(-45deg);
 }
 
+/* ---------- Compact nav ก่อนเข้า mobile drawer (กันล้น) ---------- */
+@media (max-width: 1220px) {
+  .nav-links {
+    gap: 0;
+  }
+  .nav-links a {
+    padding: 0.5rem 0.62rem;
+    font-size: 13px;
+  }
+  .nav-links a.is-active::after {
+    left: 0.62rem;
+    right: 0.62rem;
+  }
+}
+
 /* ---------- Mobile drawer ---------- */
 @media (max-width: 1024px) {
   .nav-toggle {

@@ -184,14 +184,173 @@
 
   function toolsPanel() {
     const tools = [
-      { icon: "calculator", tone: "teal", name: "Position Size Calculator", desc: "คำนวณขนาดการเทรดที่เหมาะสมตามความเสี่ยงของคุณ", href: "knowledge.html#risk-management" },
-      { icon: "shield", tone: "gold", name: "Margin Calculator", desc: "คำนวณมาร์จินและเปอร์เซ็นต์การใช้มาร์จิน", href: "knowledge.html#forex-basics" },
-      { icon: "chart", tone: "blue", name: "Pip Value Calculator", desc: "คำนวณมูลค่าของ Pip ในแต่ละคู่เงินได้อย่างแม่นยำ", href: "knowledge.html#forex-basics" },
+      { icon: "calculator", tone: "teal", name: "Position Size Calculator", desc: "คำนวณขนาดการเทรดที่เหมาะสมตามความเสี่ยงของคุณ", href: "broker-tools.html#lot-size" },
+      { icon: "shield", tone: "gold", name: "Margin Calculator", desc: "คำนวณมาร์จินและเปอร์เซ็นต์การใช้มาร์จิน", href: "broker-tools.html#margin" },
+      { icon: "chart", tone: "blue", name: "Pip Value Calculator", desc: "คำนวณมูลค่าของ Pip ในแต่ละคู่เงินได้อย่างแม่นยำ", href: "broker-tools.html#swap" },
     ];
     return `<article class="v2-panel v2-tools-panel">
-      <header class="v2-panel-head"><h2>เครื่องมือสำหรับโบรกเกอร์</h2><a href="knowledge.html">ดูทั้งหมด →</a></header>
+      <header class="v2-panel-head"><h2>เครื่องมือสำหรับโบรกเกอร์</h2><a href="broker-tools.html">ดูทั้งหมด →</a></header>
       <div class="v2-tools-list">${tools.map((tool) => `<a href="${tool.href}" class="v2-tool-row"><span class="v2-tool-icon v2-tool-icon--${tool.tone}">${TT.icon(tool.icon, 28)}</span><span><strong>${tool.name}</strong><small>${tool.desc}</small></span><b>›</b></a>`).join("")}</div>
     </article>`;
+  }
+
+  /* ============================================================
+     Quick Access — ฟีเจอร์หลัก 3 รายการ (EA Hub / Community / Broker Tools)
+     ============================================================ */
+  function quickAccessSection() {
+    const cards = [
+      {
+        icon: "ea",
+        tone: "teal",
+        title: "EA Hub",
+        desc: "แหล่งรวม Expert Advisor สำหรับ MT4/MT5 ดาวน์โหลดและแบ่งปัน EA พร้อมส่งผลงานของคุณเข้าระบบรีวิว",
+        cta: "ดู EA ทั้งหมด",
+        href: "ea.html",
+      },
+      {
+        icon: "forum",
+        tone: "gold",
+        title: "Community Forum",
+        desc: "พูดคุยแลกเปลี่ยนความรู้การเทรดกับชุมชนเทรดเดอร์ไทย ตั้งกระทู้ ถาม-ตอบ และแบ่งปันประสบการณ์ได้ฟรี",
+        cta: "เข้าร่วมชุมชน",
+        href: "forum.html",
+      },
+      {
+        icon: "calculator",
+        tone: "blue",
+        title: "เครื่องมือโบรกเกอร์",
+        desc: "คำนวณ Lot Size, Margin, Swap และเปรียบเทียบต้นทุนการเทรดระหว่างโบรกเกอร์อย่างแม่นยำ",
+        cta: "ใช้เครื่องมือ",
+        href: "broker-tools.html",
+      },
+    ];
+    return `<section class="v2-quick-access" aria-label="ฟีเจอร์หลักของเว็บไซต์">
+      <div class="v2-shell">
+        <header class="v2-quick-access__head">
+          <h2>ฟีเจอร์เด่นของ TraderToolsTH</h2>
+          <p>เครื่องมือและชุมชนที่ช่วยให้คุณเทรดอย่างมีประสิทธิภาพ</p>
+        </header>
+        <div class="v2-quick-access__grid">
+          ${cards
+            .map(
+              (c) => `<a href="${c.href}" class="v2-qa-card v2-qa-card--${c.tone}" aria-label="${h.esc(c.title)} — ${h.esc(c.cta)}">
+            <span class="v2-qa-card__icon" aria-hidden="true">${TT.icon(c.icon, 30)}</span>
+            <span class="v2-qa-card__body">
+              <strong>${h.esc(c.title)}</strong>
+              <small>${h.esc(c.desc)}</small>
+            </span>
+            <span class="v2-qa-card__cta">${h.esc(c.cta)} <span aria-hidden="true">→</span></span>
+          </a>`
+            )
+            .join("")}
+        </div>
+      </div>
+    </section>`;
+  }
+
+  /* ============================================================
+     EA ล่าสุด — ดึงจาก GET /api/content/ea (TT.EAService)
+     ============================================================ */
+  function eaSection() {
+    return `<section class="v2-community" aria-label="EA และกระทู้ล่าสุด">
+      <div class="v2-shell v2-community-grid">
+        <article class="v2-panel v2-ea-panel">
+          <header class="v2-panel-head">
+            <h2>EA ล่าสุด</h2>
+            <a href="ea.html">ดูทั้งหมด →</a>
+          </header>
+          <div class="v2-ea-list" id="homeEAList" aria-live="polite">
+            <div class="v2-state-loading">กำลังโหลด EA ล่าสุด…</div>
+          </div>
+        </article>
+        <article class="v2-panel v2-forum-panel">
+          <header class="v2-panel-head">
+            <h2>กระทู้ Community ล่าสุด</h2>
+            <a href="forum.html">ดูทั้งหมด →</a>
+          </header>
+          <div class="v2-forum-list" id="homeForumList" aria-live="polite">
+            <div class="v2-state-loading">กำลังโหลดกระทู้ล่าสุด…</div>
+          </div>
+        </article>
+      </div>
+    </section>`;
+  }
+
+  async function hydrateLatestEA() {
+    const el = document.getElementById("homeEAList");
+    if (!el) return;
+    if (!TT.EAService) {
+      el.innerHTML = `<div class="v2-state-empty"><strong>ยังไม่มี EA ที่เผยแพร่</strong><a href="ea.html" class="btn btn--ghost btn--sm">ไปที่ EA Hub</a></div>`;
+      return;
+    }
+    try {
+      const all = await TT.EAService.fetchEAs();
+      const items = Array.isArray(all) ? all.slice(0, 3) : [];
+      if (!items.length) {
+        el.innerHTML = `<div class="v2-state-empty"><strong>ยังไม่มี EA ที่เผยแพร่</strong><span>เมื่อมี EA ใหม่ผ่านการรีวิวจะแสดงที่นี่</span><a href="ea.html" class="btn btn--ghost btn--sm">ไปที่ EA Hub</a></div>`;
+        return;
+      }
+      el.innerHTML = items
+        .map((ea) => {
+          const slug = encodeURIComponent(ea.slug || ea.id || "");
+          const title = h.esc(h.truncate(ea.name || ea.title || "EA", 48));
+          const desc = h.esc(h.truncate(ea.description || ea.desc || ea.strategy || "", 80));
+          const platforms = (ea.platforms || []).map((p) => h.esc(p)).join(" · ");
+          const typeBadge = ea.isFree
+            ? `<span class="v2-tag v2-tag--free">ฟรี</span>`
+            : `<span class="v2-tag v2-tag--paid">เสียเงิน</span>`;
+          return `<a class="v2-ea-item" href="ea.html${slug ? "?ea=" + slug : ""}">
+            <div class="v2-ea-item__head">
+              ${typeBadge}
+              ${platforms ? `<span class="v2-ea-item__platforms">${platforms}</span>` : ""}
+            </div>
+            <strong>${title}</strong>
+            <p>${desc}</p>
+          </a>`;
+        })
+        .join("");
+    } catch (e) {
+      el.innerHTML = `<div class="v2-state-error"><strong>ไม่สามารถโหลด EA ได้ในขณะนี้</strong><span>กรุณาลองใหม่ภายหลัง หรือเข้าดูที่ EA Hub โดยตรง</span><a href="ea.html" class="btn btn--ghost btn--sm">ไปที่ EA Hub</a></div>`;
+    }
+  }
+
+  async function hydrateLatestForumTopics() {
+    const el = document.getElementById("homeForumList");
+    if (!el) return;
+    if (!TT.ForumService) {
+      el.innerHTML = `<div class="v2-state-empty"><strong>บริการ Community ยังไม่พร้อม</strong><a href="forum.html" class="btn btn--ghost btn--sm">ไปที่ Forum</a></div>`;
+      return;
+    }
+    try {
+      const page = await TT.ForumService.listTopics({ limit: 5, sort: "recent" });
+      const items = (page && page.items) || [];
+      if (!items.length) {
+        el.innerHTML = `<div class="v2-state-empty"><strong>ยังไม่มีกระทู้ในชุมชน</strong><span>เป็นคนแรกที่เริ่มสนทนาได้เลย</span><a href="forum.html" class="btn btn--ghost btn--sm">เข้าร่วม Forum</a></div>`;
+        return;
+      }
+      el.innerHTML = items
+        .map((t) => {
+          const id = encodeURIComponent(t.id || t.slug || "");
+          const title = h.esc(h.truncate(t.title || "ไม่มีชื่อกระทู้", 60));
+          const author = h.esc(t.authorName || t.author || "สมาชิก");
+          const replies = Number(t.postCount || t.replies || 0);
+          const cat = t.categoryName || t.category || "";
+          const catBadge = cat ? `<span class="v2-forum-item__cat">${h.esc(cat)}</span>` : "";
+          return `<a class="v2-forum-item" href="forum-topic.html${id ? "?id=" + id : ""}">
+            ${catBadge}
+            <strong>${title}</strong>
+            <div class="v2-forum-item__meta">
+              <span>โดย ${author}</span>
+              <span>•</span>
+              <span>${replies} ความเห็น</span>
+            </div>
+          </a>`;
+        })
+        .join("");
+    } catch (e) {
+      const code = (e && (e.code || e.message)) || "";
+      el.innerHTML = `<div class="v2-state-error"><strong>ไม่สามารถโหลดกระทู้ได้ในขณะนี้</strong><span>อาจเป็นเพราะบริการ Community ยังไม่เปิดให้ใช้งาน${code ? " (" + h.esc(String(code)) + ")" : ""}</span><a href="forum.html" class="btn btn--ghost btn--sm">ไปที่ Forum</a></div>`;
+    }
   }
 
   function featureStrip() {
@@ -220,13 +379,20 @@
         </div>
       </section>
       <section class="v2-dashboard"><div class="v2-shell v2-dashboard-grid">${newsPanel()}${calendarPanel()}${toolsPanel()}</div>${featureStrip()}</section>
+      ${quickAccessSection()}
+      ${eaSection()}
     </main>`;
     document.getElementById("app").innerHTML = `${TT.layout.navbar("home")}${TT.layout.ticker()}${main}`;
     document.title = "TraderToolsTH — Gold Trading Desk";
     TT.layout.initNavbar();
     TT.layout.initTicker();
     drawSignalSpark();
-    Promise.allSettled([hydrateLiveNews(), hydrateLiveCalendar()]);
+    Promise.allSettled([
+      hydrateLiveNews(),
+      hydrateLiveCalendar(),
+      hydrateLatestEA(),
+      hydrateLatestForumTopics(),
+    ]);
     window.addEventListener("resize", drawSignalSpark, { passive: true });
   }
 

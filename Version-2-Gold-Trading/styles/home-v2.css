@@ -251,3 +251,291 @@
   .v2-feature { justify-content: flex-start; border-right: 0; border-bottom: 1px solid rgba(129, 163, 191, 0.13); padding: 14px 24px; }
   .v2-feature:last-child { border-bottom: 0; }
 }
+
+/* ============================================================
+   Quick Access — ฟีเจอร์หลัก 3 รายการ (EA Hub / Community / Broker Tools)
+   ============================================================ */
+.v2-quick-access {
+  width: min(100% - 44px, 1400px);
+  margin: 28px auto 0;
+}
+
+.v2-quick-access__head {
+  margin-bottom: 14px;
+}
+
+.v2-quick-access__head h2 {
+  color: #eef4f9;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.v2-quick-access__head p {
+  color: #9aabbb;
+  font-size: 13px;
+  margin: 0;
+}
+
+.v2-quick-access__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.v2-qa-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid var(--v2-border, rgba(129, 163, 191, 0.15));
+  border-radius: 9px;
+  background: linear-gradient(145deg, rgba(13, 40, 65, 0.96), rgba(7, 29, 49, 0.96));
+  color: #eef4f9;
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+  min-width: 0;
+}
+
+.v2-qa-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(44, 123, 229, 0.45);
+  box-shadow: 0 14px 34px rgba(0, 7, 16, 0.28);
+}
+
+.v2-qa-card:focus-visible {
+  outline: 2px solid var(--blue-500);
+  outline-offset: 3px;
+}
+
+.v2-qa-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.v2-qa-card--teal .v2-qa-card__icon {
+  background: rgba(37, 188, 168, 0.12);
+  color: var(--teal-500);
+}
+
+.v2-qa-card--gold .v2-qa-card__icon {
+  background: rgba(229, 179, 63, 0.12);
+  color: var(--gold-500);
+}
+
+.v2-qa-card--blue .v2-qa-card__icon {
+  background: rgba(44, 123, 229, 0.14);
+  color: var(--blue-400);
+}
+
+.v2-qa-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.v2-qa-card__body strong {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.v2-qa-card__body small {
+  font-size: 13px;
+  line-height: 1.55;
+  color: #9cadbc;
+}
+
+.v2-qa-card__cta {
+  margin-top: auto;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blue-400);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.v2-qa-card:hover .v2-qa-card__cta {
+  color: var(--blue-500);
+}
+
+/* ============================================================
+   Community section — EA ล่าสุด + กระทู้ Community ล่าสุด
+   ============================================================ */
+.v2-community {
+  width: min(100% - 44px, 1400px);
+  margin: 14px auto 40px;
+}
+
+.v2-community-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.v2-ea-panel,
+.v2-forum-panel {
+  min-height: 320px;
+  height: auto;
+}
+
+.v2-ea-list,
+.v2-forum-list {
+  display: grid;
+  gap: 8px;
+  padding: 6px 13px 14px;
+}
+
+.v2-ea-item,
+.v2-forum-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid rgba(129, 163, 191, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  text-decoration: none;
+  color: #eef4f9;
+  transition: background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+  min-width: 0;
+}
+
+.v2-ea-item:hover,
+.v2-forum-item:hover {
+  background: rgba(44, 123, 229, 0.08);
+  border-color: rgba(44, 123, 229, 0.35);
+}
+
+.v2-ea-item:focus-visible,
+.v2-forum-item:focus-visible {
+  outline: 2px solid var(--blue-500);
+  outline-offset: 2px;
+}
+
+.v2-ea-item__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.v2-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.v2-tag--free {
+  color: var(--teal-500);
+  background: rgba(37, 188, 168, 0.14);
+}
+
+.v2-tag--paid {
+  color: var(--gold-500);
+  background: rgba(229, 179, 63, 0.14);
+}
+
+.v2-ea-item__platforms {
+  font-size: 11px;
+  color: #8295ac;
+}
+
+.v2-ea-item strong,
+.v2-forum-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.4;
+}
+
+.v2-ea-item p {
+  margin: 0;
+  font-size: 12px;
+  color: #9aabbb;
+  line-height: 1.5;
+}
+
+.v2-forum-item__cat {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--blue-400);
+  background: rgba(44, 123, 229, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.v2-forum-item__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #8295ac;
+}
+
+/* ---------- States: loading / empty / error ---------- */
+.v2-state-loading,
+.v2-state-empty,
+.v2-state-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 16px;
+  align-items: flex-start;
+}
+
+.v2-state-loading {
+  color: #8295ac;
+  font-size: 13px;
+}
+
+.v2-state-empty strong,
+.v2-state-error strong {
+  color: #eef4f9;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.v2-state-empty span,
+.v2-state-error span {
+  color: #9aabbb;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ---------- Responsive: Quick Access + Community ---------- */
+@media (max-width: 1220px) {
+  .v2-quick-access__grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .v2-community-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .v2-quick-access,
+  .v2-community {
+    width: min(100% - 28px, 560px);
+  }
+  .v2-quick-access__grid {
+    grid-template-columns: 1fr;
+  }
+  .v2-qa-card {
+    padding: 16px;
+  }
+}

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ความรู้การเทรด — TraderToolsTH</title>
-  <meta name="description" content="บทความความรู้ Forex ทองคำ การบริหารความเสี่ยง วิธีใช้ Signal การอ่านข่าว และการใช้ปฏิทินเศรษฐกิจ">
+  <title>EA Hub — TraderToolsTH</title>
+  <meta name="description" content="EA Hub ของ TraderToolsTH: ดาวน์โหลด EA ฟรี, เลือกซื้อ EA คุณภาพ และส่ง EA ของคุณเข้าระบบเพื่อรอตรวจสอบ">
   <meta name="theme-color" content="#0a0e14">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,20 +15,25 @@
   <link rel="stylesheet" href="styles/layout.css">
   <link rel="stylesheet" href="styles/components.css">
   <link rel="stylesheet" href="styles/navbar.css?v=20260716-community-v1">
-  <link rel="stylesheet" href="styles/pages.css?v=20260716-ticker-v6">
-  <link rel="stylesheet" href="styles/subpages-v2.css?v=20260715-v1">
+  <link rel="stylesheet" href="styles/pages.css?v=20260716-ea-v1">
+  <link rel="stylesheet" href="styles/subpages-v2.css?v=20260716-ea-v1">
+  <link rel="stylesheet" href="styles/ea.css?v=20260716-ea-v1">
 </head>
-<body>
+<body class="subpage-v2">
   <a href="#main" class="skip-link">ข้ามไปยังเนื้อหาหลัก</a>
   <div id="app"></div>
 
+  <!-- Modal containers (rendered lazily by ea.js) -->
+  <div id="eaDetailRoot" aria-hidden="true"></div>
+  <div id="eaSubmitRoot" aria-hidden="true"></div>
+
   <script src="data/site.js"></script>
-  <script src="data/knowledge.js"></script>
-  <script src="components/icons.js"></script>
+  <script src="components/icons.js?v=20260716-ea-v1"></script>
   <script src="components/helpers.js"></script>
   <script src="services/market-ticker.service.js?v=20260716-ticker-v1"></script>
   <script src="components/layout.js?v=20260716-community-v1"></script>
-  <script src="components/cards.js"></script>
-  <script src="knowledge.js"></script>
+  <script src="components/cards.js?v=20260716-ea-v1"></script>
+  <script src="services/ea.service.js?v=20260716-ea-v1"></script>
+  <script src="ea.js?v=20260716-ea-v1"></script>
 </body>
 </html>

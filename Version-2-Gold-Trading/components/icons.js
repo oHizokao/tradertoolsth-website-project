@@ -48,6 +48,7 @@ TT.icon = function (name, size = 20) {
     book: '<path d="M4 5a2 2 0 0 1 2-2h6v18H6a2 2 0 0 0-2 2V5Z" stroke-linejoin="round"/><path d="M20 5a2 2 0 0 0-2-2h-6v18h6a2 2 0 0 1 2 2V5Z" stroke-linejoin="round"/>',
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
     ea: '<rect x="5" y="7" width="14" height="13" rx="2" stroke-linejoin="round"/><path d="M9 3v4M15 3v4M3 12h2M19 12h2M3 16h2M19 16h2" stroke-linecap="round"/><circle cx="9.5" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="13" r="1" fill="currentColor" stroke="none"/><path d="M9.5 16.5h5" stroke-linecap="round"/>',
+    forum: '<path d="M4 5h13a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H9l-4 4v-4a2 2 0 0 1-1-2V5Z" stroke-linejoin="round"/><path d="M7 19h9a2 2 0 0 0 2-2v-1" stroke-linecap="round"/><path d="M8 9h6M8 12h4" stroke-linecap="round"/>',
     upload: '<path d="M12 16V4M7 9l5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round"/>',
     download: '<path d="M12 4v12M7 11l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 18v0a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v0" stroke-linecap="round" stroke-linejoin="round"/>',
 
