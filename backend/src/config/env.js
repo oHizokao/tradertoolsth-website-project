@@ -111,6 +111,44 @@ export const config = {
     // อายุข่าวสูงสุดที่จะรับ (ชั่วโมง) — ข่าวเก่ากว่านี้ถูกตัดออก
     maxAgeHours: num("KITCO_MAX_AGE_HOURS", 48),
   },
+  // Phase 12 — Economic Calendar (Forex Factory)
+  // กฎ QC: เรียก source ฝั่ง backend เท่านั้น ไม่ให้ frontend scrape เอง
+  // - calendarUrl: JSON export สาธารณะของ Forex Factory (thisweek)
+  //   เป็น public data เข้าถึงตามปกติ ไม่ใช่ bypass ระบบป้องกันใดๆ
+  // - syncIntervalSeconds: ค่าเริ่มต้น 300 (5 นาที) ตามที่ Codex กำหนด
+  // - staleAfterSeconds: หาก cache เก่ากว่านี้และ source ล้มเหลว → ยังคืน cache แต่ติด stale=true
+  calendar: {
+    enabled: bool("CALENDAR_ENABLED", true),
+    calendarUrl:
+      process.env.FOREX_FACTORY_CALENDAR_URL ||
+      "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+    sourceName: process.env.CALENDAR_SOURCE_NAME || "Forex Factory",
+    syncIntervalSeconds: num("CALENDAR_SYNC_INTERVAL_SECONDS", 300),
+    staleAfterSeconds: num("CALENDAR_STALE_AFTER_SECONDS", 1800),
+    httpTimeoutMs: num("CALENDAR_HTTP_TIMEOUT_MS", 15000),
+    httpRetries: num("CALENDAR_HTTP_RETRIES", 2),
+    // อายุ event สูงสุดที่จะเก็บใน cache (ชั่วโมง) — เก่ากว่านี้ถูก prune
+    maxEventAgeHours: num("CALENDAR_MAX_EVENT_AGE_HOURS", 168),
+  },
+  // Phase 13 — Market Ticker (watchlist prices)
+  // กฎ QC (ตามที่ Codex กำหนด):
+  // - ดึงข้อมูลฝั่ง backend เท่านั้น ห้ามให้ browser เรียก third-party โดยตรง
+  // - cacheSeconds ≥ 30 (กัน hammer แหล่งข้อมูล ตาม requirement)
+  // - staleAfterSeconds: หาก cache เก่ากว่านี้และ source ล้มเหลว → ยังคืน cache แต่ติด stale=true
+  // - ไม่มี secret/API key ใดๆ (ใช้ free public sources เท่านั้น)
+  market: {
+    enabled: bool("MARKET_ENABLED", true),
+    cacheSeconds: num("MARKET_CACHE_SECONDS", 60),
+    staleAfterSeconds: num("MARKET_STALE_AFTER_SECONDS", 600),
+    syncIntervalSeconds: num("MARKET_SYNC_INTERVAL_SECONDS", 60),
+    fetchTimeoutMs: num("MARKET_FETCH_TIMEOUT_MS", 8000),
+    // symbols: comma-separated เช่น "XAUUSD,XAGUSD,EURUSD"
+    // ค่าเริ่มต้นว่าง = ใช้ DEFAULT_SYMBOLS ของ service
+    symbols: (process.env.MARKET_SYMBOLS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
   log: {
     level: process.env.LOG_LEVEL || "info",
   },

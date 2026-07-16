@@ -17,9 +17,11 @@
           </div>
 
           <div id="faqList">
-            ${list
-              .map(
-                (item, i) => `<div class="faq-item" data-faq="${i}">
+            ${
+              list.length
+                ? list
+                    .map(
+                      (item, i) => `<div class="faq-item" data-faq="${i}">
                 <button class="faq-item__q" aria-expanded="false" aria-controls="faq-a-${i}">
                   <span>${h.esc(item.q)}</span>
                   <span class="faq-item__icon" aria-hidden="true">+</span>
@@ -28,8 +30,10 @@
                   <div class="faq-item__a-inner">${h.esc(item.a)}</div>
                 </div>
               </div>`
-              )
-              .join("")}
+                    )
+                    .join("")
+                : `<div class="state"><div class="state__title">ยังไม่มีคำถามที่พบบ่อยในขณะนี้</div></div>`
+            }
           </div>
 
           <div class="card" style="margin-top:32px;text-align:center">

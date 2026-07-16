@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 import { config } from "./config/env.js";
 import { openDb, closeDb } from "./store/db.js";
 import { createNewsRepository } from "./store/newsRepository.js";
+import { createCalendarRepository } from "./store/calendarRepository.js";
+import { createCalendarService, createCalendarScheduler } from "./calendar/calendarService.js";
+import { createMarketService, createMarketScheduler } from "./market/marketService.js";
 import { createAutoPilotRepository } from "./store/autoPilotRepository.js";
 import { createAuditRepository } from "./store/auditRepository.js";
 import { createNewsUpdater } from "./pipeline/runNewsUpdate.js";
@@ -16,6 +19,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(here, "..", "..");
 const db = openDb();
 const repo = createNewsRepository(db);
+const calendarRepo = createCalendarRepository(db);
+const calendarService = createCalendarService(calendarRepo);
+const calendarScheduler = createCalendarScheduler(calendarService);
+const marketService = createMarketService();
+const marketScheduler = createMarketScheduler(marketService);
 const apRepo = createAutoPilotRepository(db);
 const auditRepo = createAuditRepository(db);
 const ctx = { db, repo };
@@ -28,6 +36,8 @@ const server = createHttpServer({
   scheduler,
   autoPilot,
   auditRepo,
+  calendarService,
+  marketService,
   projectRoot,
   siteVersion: config.server.siteVersion,
   adminToken: config.server.adminToken,
@@ -67,11 +77,33 @@ function stopAutoPilotScheduler() {
 if (config.scheduler.enabled) scheduler.start();
 if (config.autoPilot.enabled) startAutoPilotScheduler();
 
+// Phase 12 — Economic Calendar: scheduler + initial sync
+// sync อัตโนมัติทุก syncIntervalSeconds (default 300 = 5 นาที)
+// initial sync รอบแรกเพื่อให้มีข้อมูลทันที (ถ้ายังไม่มี cache)
+if (config.calendar.enabled) {
+  calendarScheduler.start();
+  // initial sync เฉพาะเมื่อ cache ว่าง (กันยิง source ทุกครั้งที่ restart)
+  if (calendarRepo.count() === 0 || calendarService.isStale()) {
+    calendarService
+      .sync()
+      .catch((err) => log.error(`initial calendar sync failed: ${err.message}`));
+  }
+}
+
+// Phase 13 — Market Ticker: scheduler + initial sync (lazy)
+// sync อัตโนมัติทุก syncIntervalSeconds (default 60s)
+// initial sync ทำ lazy ใน readQuotes แรก (ไม่บล็อก server boot ด้วย network call)
+if (config.market.enabled) {
+  marketScheduler.start();
+}
+
 const shownHost = address.address === "::" ? "localhost" : address.address;
 log.info(`website ready: http://${shownHost}:${address.port}/`);
 log.info(`site: http://${shownHost}:${address.port}/Version-2-Gold-Trading/home.html`);
 log.info(`admin: http://${shownHost}:${address.port}/Version-2-Gold-Trading/admin.html`);
 log.info(`Auto Pilot: env=${config.autoPilot.enabled ? "allowed" : "off"} (DB setting ควบคุมการรันจริง)`);
+log.info(`Economic Calendar: ${config.calendar.enabled ? "enabled" : "off"} (sync ทุก ${config.calendar.syncIntervalSeconds}s)`);
+log.info(`Market Ticker: ${config.market.enabled ? "enabled" : "off"} (cache ${config.market.cacheSeconds}s, sync ทุก ${config.market.syncIntervalSeconds}s)`);
 
 let stopping = false;
 async function shutdown(signal) {
@@ -80,6 +112,8 @@ async function shutdown(signal) {
   log.info(`shutting down (${signal})`);
   scheduler.stop();
   stopAutoPilotScheduler();
+  calendarScheduler.stop();
+  marketScheduler.stop();
   await new Promise((resolveClose) => server.close(resolveClose));
   closeDb();
 }

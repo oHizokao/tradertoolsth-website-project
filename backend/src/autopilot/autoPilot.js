@@ -101,6 +101,49 @@ export function createAutoPilot(ctx, deps = {}) {
   }
 
   /**
+   * Rollback ข่าว published ล่าสุด (ตาม published_at) กลับเป็น 'ready'
+   * - ใช้สำหรับ undo การ publish ครั้งล่าสุด (manual)
+   * - ไม่ลบข่าว — แค่ unpublish (publish_status → 'ready', published_at → NULL)
+   * - บันทึก audit trail
+   * @param {object} opts { reviewer }
+   * @returns {{ ok: boolean, error?: string, id?: string, title?: string, previousStatus?: string, newStatus?: string }}
+   */
+  function rollbackLatestPublished({ reviewer } = {}) {
+    const latest = repo.listLatestPublished(1)[0];
+    if (!latest) {
+      log.info("rollback: no published news to roll back");
+      return { ok: false, error: "no_published_news" };
+    }
+    const updated = repo.updatePublishStatus(latest.id, "ready");
+    if (!updated) {
+      log.warn(`rollback: update failed for ${latest.id}`);
+      return { ok: false, error: "update_failed" };
+    }
+    const runId = `rollback:${uuidFn()}`;
+    auditRepo.append({
+      runId,
+      newsId: latest.id,
+      stage: AUDIT_STAGES.NEWS_ROLLBACK,
+      status: "ok",
+      reason: "manual_rollback",
+      metadata: {
+        reviewer: reviewer ? String(reviewer).slice(0, 80) : "admin",
+        title: latest.thaiTitle || latest.originalTitle || "",
+        sourceUrl: latest.sourceUrl || "",
+      },
+    });
+    const title = latest.thaiTitle || latest.originalTitle || "";
+    log.info(`rollback completed: ${latest.id} (published→ready) "${title.slice(0, 60)}"`);
+    return {
+      ok: true,
+      id: latest.id,
+      title,
+      previousStatus: "published",
+      newStatus: "ready",
+    };
+  }
+
+  /**
    * รันรอบเดียว — ใช้ pipeline เดียวกับ scheduler/manual
    *
    * @param {object} opts { maxPerRun?, aiOpts?, imageOpts?, skipImage? }
@@ -332,6 +375,7 @@ export function createAutoPilot(ctx, deps = {}) {
     disable,
     emergencyStop,
     clearEmergencyStop,
+    rollbackLatestPublished,
     runOnce,
     // expose สำหรับ test
     get _running() {

@@ -128,3 +128,51 @@ CREATE INDEX IF NOT EXISTS idx_ap_audit_created_at ON auto_pilot_audit(created_a
 --     เพราะ SQLite ไม่รองรับ ADD COLUMN IF NOT EXISTS
 --   - migration ข้อมูลเดิม (จาก original_published_at) ต้องผ่านการ
 --     validate parse ใน db.js ก่อน มิฉะนั้นเก็บ NULL + needs_review
+
+-- ============================================================
+-- Phase 12 — Economic Calendar events (Forex Factory)
+-- ------------------------------------------------------------
+-- กฎ QC:
+--   - ตารางแยกจาก news โดยสมบูรณ์ (ไม่กระทบตาราง news)
+--   - เก็บเวลาเป็น UTC ใน scheduled_at_utc
+--   - source_event_id เป็น deterministic hash (idempotent upsert)
+--   - มี Actual ใหม่ → update record เดิม (ไม่สร้างซ้ำ)
+--   - ทุก query ใช้ parameterized (จัดการใน repository layer)
+--   - idempotent: CREATE ... IF NOT EXISTS ทั้งหมด รันซ้ำได้
+-- ============================================================
+CREATE TABLE IF NOT EXISTS calendar_events (
+  source_event_id TEXT PRIMARY KEY,        -- deterministic hash (ff-<hash16>)
+  source_name TEXT NOT NULL,               -- "Forex Factory"
+  source_url TEXT,
+  event_name TEXT NOT NULL,
+  country TEXT,                            -- รหัสสกุลเงิน (USD/EUR/...)
+  currency TEXT,
+  impact TEXT NOT NULL,                    -- low / medium / high
+  scheduled_at_utc TEXT NOT NULL,          -- ISO UTC (เก็บ UTC เสมอ)
+  scheduled_at_bangkok TEXT,               -- ISO เลื่อน +7 (ช่วย query/filter)
+  actual TEXT,                             -- NULL จนกว่าจะมี Actual
+  forecast TEXT,
+  previous TEXT,
+  revised TEXT,
+  detail_url TEXT,
+  is_tentative INTEGER NOT NULL DEFAULT 0, -- 0/1
+  last_updated TEXT NOT NULL,              -- UTC ISO ทุกครั้งที่ sync
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_calendar_scheduled_at_utc ON calendar_events(scheduled_at_utc);
+CREATE INDEX IF NOT EXISTS idx_calendar_currency ON calendar_events(currency);
+CREATE INDEX IF NOT EXISTS idx_calendar_impact ON calendar_events(impact);
+CREATE INDEX IF NOT EXISTS idx_calendar_source_event_id ON calendar_events(source_event_id);
+
+-- sync metadata (single-row: id='singleton') เก็บสถานะ sync ล่าสุด
+-- ใช้สำหรับ stale detection + cache fallback
+CREATE TABLE IF NOT EXISTS calendar_sync_meta (
+  id TEXT PRIMARY KEY,                     -- เสมอ 'singleton'
+  last_sync_at TEXT,                       -- UTC ISO ของ sync สำเร็จล่าสุด
+  last_sync_ok INTEGER NOT NULL DEFAULT 0, -- 0/1
+  last_error TEXT,
+  last_event_count INTEGER,
+  source_name TEXT,
+  updated_at TEXT NOT NULL
+);

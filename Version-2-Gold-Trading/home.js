@@ -89,15 +89,19 @@
     const items = (TT.news || []).filter((item) => ["gold-fed-2026-07", "gold-china-demand-2026", "oil-gold-correlation-2026"].includes(item.id));
     return `<article class="v2-panel v2-news-panel">
       <header class="v2-panel-head"><h2>ข่าวสารการตลาด</h2><a href="news.html">ดูทั้งหมด →</a></header>
-      <div class="v2-news-list">
-        ${items.slice(0, 3).map((item, index) => `<a class="v2-news-item" href="news-detail.html?slug=${encodeURIComponent(item.slug)}">
+      <div class="v2-news-list" id="homeNewsList">
+        ${
+          items.length
+            ? items.slice(0, 3).map((item, index) => `<a class="v2-news-item" href="news-detail.html?slug=${encodeURIComponent(item.slug)}">
           <img src="${h.esc(item.cover)}" alt="" loading="lazy" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1610375461246-83df859d849d?w=800&auto=format&fit=crop&q=70'">
           <div>
             <div class="v2-news-meta"><span class="v2-news-tag v2-news-tag--${index}">${index === 0 ? "เศรษฐกิจ" : index === 1 ? "ทองคำ" : "น้ำมัน"}</span><time>${index + 1} ชั่วโมงที่แล้ว</time></div>
             <strong>${h.esc(h.truncate(item.title, 56))}</strong>
             <p>${h.esc(h.truncate(item.excerpt, 62))}</p>
           </div>
-        </a>`).join("")}
+        </a>`).join("")
+            : `<div class="state"><div class="state__title">ยังไม่มีข่าวล่าสุด</div><a href="news.html" class="btn btn--ghost btn--sm">ดูข่าวทั้งหมด</a></div>`
+        }
       </div>
     </article>`;
   }
@@ -113,9 +117,69 @@
     return `<article class="v2-panel v2-calendar-panel">
       <header class="v2-panel-head"><h2>ปฏิทินเศรษฐกิจ</h2><a href="calendar.html">ดูทั้งหมด →</a></header>
       <div class="v2-calendar-head"><span>เวลา</span><span>เหตุการณ์</span><span>ความสำคัญ</span><span>คาดการณ์</span><span>ก่อนหน้า</span></div>
-      <div class="v2-calendar-body">${rows.map((row) => `<div class="v2-calendar-row"><span>${row[0]}</span><span class="v2-event"><b class="v2-mini-flag v2-mini-flag--${row[1]}"></b><small>${row[2]}</small>${row[3]}</span><span class="v2-impact" aria-label="ความสำคัญ ${row[4]} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < row[4] ? "is-on" : ""}"></i>`).join("")}</span><span>${row[5]}</span><span>${row[6]}</span></div>`).join("")}</div>
-      <footer class="v2-calendar-foot"><span>เวลาปัจจุบัน: 09:45 น. (GMT+7)</span><span>อัปเดตอัตโนมัติ <i></i></span></footer>
+      <div class="v2-calendar-body" id="homeCalendarList">${rows.map((row) => `<div class="v2-calendar-row"><span>${row[0]}</span><span class="v2-event"><b class="v2-mini-flag v2-mini-flag--${row[1]}"></b><small>${row[2]}</small>${row[3]}</span><span class="v2-impact" aria-label="ความสำคัญ ${row[4]} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < row[4] ? "is-on" : ""}"></i>`).join("")}</span><span>${row[5]}</span><span>${row[6]}</span></div>`).join("")}</div>
+      <footer class="v2-calendar-foot" id="homeCalendarStatus"><span>กำลังโหลดปฏิทินล่าสุด…</span><span>เชื่อมต่อข้อมูลจริง <i></i></span></footer>
     </article>`;
+  }
+
+  function timeAgo(iso) {
+    const ms = Date.now() - new Date(iso || 0).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return "ล่าสุด";
+    const hours = Math.floor(ms / 3600000);
+    if (hours < 1) return "ไม่ถึง 1 ชั่วโมงที่แล้ว";
+    if (hours < 24) return `${hours} ชั่วโมงที่แล้ว`;
+    return `${Math.floor(hours / 24)} วันที่แล้ว`;
+  }
+
+  function impactLevel(impact) {
+    return impact === "high" ? 3 : impact === "medium" ? 2 : 1;
+  }
+
+  function flagClass(currency) {
+    const code = String(currency || "").toLowerCase();
+    if (code === "usd") return "us";
+    if (code === "gbp") return "gb";
+    if (code === "jpy") return "jp";
+    if (code === "eur") return "eu";
+    return "global";
+  }
+
+  async function hydrateLiveNews() {
+    const el = document.getElementById("homeNewsList");
+    if (!el || !TT.NewsService) return;
+    const page = await TT.NewsService.fetchNews("all", { limit: 3, offset: 0 });
+    const items = page.items || [];
+    if (!items.length) {
+      el.innerHTML = `<div class="state"><div class="state__title">ยังไม่มีข่าวล่าสุด</div><a href="news.html" class="btn btn--ghost btn--sm">ดูข่าวทั้งหมด</a></div>`;
+      return;
+    }
+    el.innerHTML = items.map((item, index) => `<a class="v2-news-item" href="news-detail.html?slug=${encodeURIComponent(item.slug || item.id)}">
+      <img src="${h.esc(item.cover || "assets/images/news-gold.jpg")}" alt="" loading="lazy">
+      <div><div class="v2-news-meta"><span class="v2-news-tag v2-news-tag--${index}">${item.category === "forex" ? "Forex" : "ทองคำ"}</span><time>${h.esc(timeAgo(item.publishedAt || item.sourcePublishedAt))}</time></div>
+      <strong>${h.esc(h.truncate(item.title || "", 56))}</strong><p>${h.esc(h.truncate(item.excerpt || "", 62))}</p></div>
+    </a>`).join("");
+  }
+
+  async function hydrateLiveCalendar() {
+    const el = document.getElementById("homeCalendarList");
+    const status = document.getElementById("homeCalendarStatus");
+    if (!el || !TT.CalendarService) return;
+    const envelope = await TT.CalendarService.fetchUpcoming({ limit: 5 });
+    const items = envelope.items || [];
+    if (!items.length) {
+      el.innerHTML = `<div class="state"><div class="state__title">ยังไม่มีเหตุการณ์ที่กำลังจะมาถึง</div><a href="calendar.html" class="btn btn--ghost btn--sm">ดูปฏิทินทั้งหมด</a></div>`;
+    } else {
+      el.innerHTML = items.map((item) => {
+        const level = impactLevel(item.impact);
+        const time = String(item.scheduledAtBangkok || "").slice(11, 16) || "—";
+        const currency = String(item.currency || item.country || "—").toUpperCase();
+        return `<a class="v2-calendar-row" href="calendar.html#${encodeURIComponent(item.id || "upcoming")}"><span>${h.esc(time)}</span><span class="v2-event"><b class="v2-mini-flag v2-mini-flag--${flagClass(currency)}"></b><small>${h.esc(currency)}</small>${h.esc(h.truncate(item.eventName || "", 28))}</span><span class="v2-impact" aria-label="ความสำคัญ ${level} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < level ? "is-on" : ""}"></i>`).join("")}</span><span>${h.esc(item.forecast || "—")}</span><span>${h.esc(item.previous || "—")}</span></a>`;
+      }).join("");
+    }
+    if (status) {
+      const updated = envelope.updatedAt ? new Date(envelope.updatedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "—";
+      status.innerHTML = `<span>อัปเดตล่าสุด ${updated} น. (GMT+7)</span><span>${envelope.stale ? "ข้อมูลล่าสุดที่มี" : "อัปเดตอัตโนมัติ"} <i></i></span>`;
+    }
   }
 
   function toolsPanel() {
@@ -160,7 +224,9 @@
     document.getElementById("app").innerHTML = `${TT.layout.navbar("home")}${TT.layout.ticker()}${main}`;
     document.title = "TraderToolsTH — Gold Trading Desk";
     TT.layout.initNavbar();
+    TT.layout.initTicker();
     drawSignalSpark();
+    Promise.allSettled([hydrateLiveNews(), hydrateLiveCalendar()]);
     window.addEventListener("resize", drawSignalSpark, { passive: true });
   }
 

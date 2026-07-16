@@ -1,64 +1,117 @@
 /* ============================================================
-   Service Layer — Economic Calendar Service
-   ปัจจุบันใช้ Mock Data จาก data/calendar.js
-   จุดที่รอเชื่อมระบบจริง: ฟังก์ชัน fetchEvents()
+   Service Layer — Economic Calendar Service (V2 — Live API)
+   ------------------------------------------------------------
+   - เรียก /api/calendar ฝั่ง backend เท่านั้น (ห้าม frontend scrape)
+   - backend เป็นคนดึงจาก Forex Factory + cache + sync
+   - รองรับ envelope { items, updatedAt, stale, source }
+   - ถ้า API ล้มเหลว → คืน envelope ที่ items=[], stale=true (ไม่หลอกข้อมูล)
    ============================================================ */
 
 window.TT = window.TT || {};
 
 TT.CalendarService = (function () {
-  const API_ENDPOINT = null; // TODO: "/api/calendar"
+  const API_ENDPOINT = "/api/calendar";
+  const UPCOMING_ENDPOINT = "/api/calendar/upcoming";
 
-  function delay(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  /**
+   * Normalize ผลลัพธ์จาก API ให้เป็น envelope เสมอ
+   * { items, updatedAt, stale, source }
+   * - รองรับกรณี API คืน plain array (backward-compat)
+   * - ป้องกัน field หาย
+   */
+  function normalizeEnvelope(payload) {
+    if (Array.isArray(payload)) {
+      return { items: payload, updatedAt: null, stale: false, source: "Forex Factory" };
+    }
+    if (payload && typeof payload === "object") {
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      return {
+        items,
+        updatedAt: payload.updatedAt || null,
+        stale: !!payload.stale,
+        source: payload.source || "Forex Factory",
+      };
+    }
+    return { items: [], updatedAt: null, stale: true, source: "Forex Factory" };
   }
 
+  /**
+   * สร้าง query string จาก filter
+   * @param {object} filter { range?, impact?, currency?, importance? }
+   */
+  function buildParams(filter) {
+    const params = new URLSearchParams();
+    if (filter.range) {
+      if (filter.range.from instanceof Date) {
+        params.set("from", toDateParam(filter.range.from));
+      }
+      if (filter.range.to instanceof Date) {
+        params.set("to", toDateParam(filter.range.to));
+      }
+    }
+    if (filter.from) params.set("from", toDateParam(filter.from));
+    if (filter.to) params.set("to", toDateParam(filter.to));
+    // impact/importance ส่งเป็น importance (backend รองรับทั้งคู่)
+    const impact = filter.impact || filter.importance;
+    if (impact && impact !== "all") params.set("importance", impact);
+    if (filter.currency && filter.currency !== "all") params.set("currency", filter.currency);
+    return params;
+  }
+
+  /** Date → "YYYY-MM-DD" (สำหรับ query param) */
+  function toDateParam(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  /**
+   * ดึง events พร้อม envelope
+   * @param {object} filter { range, impact, currency }
+   * @returns {Promise<{items, updatedAt, stale, source}>}
+   */
   async function fetchEvents(filter = {}) {
-    if (!API_ENDPOINT) {
-      await delay(180);
-      let list = (TT.calendar || []).slice();
-
-      if (filter.date) {
-        const target = new Date(filter.date);
-        list = list.filter((e) => sameDay(new Date(e.time), target));
-      }
-      if (filter.range) {
-        // filter.range = { from: Date, to: Date }
-        list = list.filter((e) => {
-          const t = new Date(e.time);
-          return t >= filter.range.from && t <= filter.range.to;
-        });
-      }
-      if (filter.currency && filter.currency !== "all") {
-        list = list.filter((e) => e.currency === filter.currency);
-      }
-      if (filter.impact && filter.impact !== "all") {
-        list = list.filter((e) => e.impact === filter.impact);
-      }
-
-      return list.sort((a, b) => new Date(a.time) - new Date(b.time));
-    }
-
+    const params = buildParams(filter);
+    const url = API_ENDPOINT + (params.toString() ? "?" + params.toString() : "");
     try {
-      const res = await fetch(API_ENDPOINT);
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error("HTTP " + res.status);
-      return await res.json();
+      const payload = await res.json();
+      return normalizeEnvelope(payload);
     } catch (err) {
-      console.error("[CalendarService] fetch error:", err);
-      throw err;
+      console.warn("[CalendarService] API unavailable:", err);
+      // ไม่ fallback เป็น mock data (ห้ามหลอกข้อมูลจริง)
+      // คืน envelope ที่บอกว่าล้มเหลว ให้ UI แสดง error state
+      return { items: [], updatedAt: null, stale: true, source: "Forex Factory", error: true };
     }
   }
 
-  function sameDay(a, b) {
-    return (
-      a.getFullYear() === b.getFullYear() &&
-      a.getMonth() === b.getMonth() &&
-      a.getDate() === b.getDate()
-    );
+  /**
+   * ดึง upcoming events (เวลา >= ตอนนี้)
+   * @param {object} opts { limit, currency, impact }
+   */
+  async function fetchUpcoming(opts = {}) {
+    const params = new URLSearchParams();
+    if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.currency && opts.currency !== "all") params.set("currency", opts.currency);
+    const impact = opts.impact || opts.importance;
+    if (impact && impact !== "all") params.set("importance", impact);
+    try {
+      const res = await fetch(UPCOMING_ENDPOINT + "?" + params.toString(), {
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return normalizeEnvelope(await res.json());
+    } catch (err) {
+      console.warn("[CalendarService] upcoming API unavailable:", err);
+      return { items: [], updatedAt: null, stale: true, source: "Forex Factory", error: true };
+    }
   }
 
   return {
     fetchEvents,
-    isLive: !!API_ENDPOINT,
+    fetchUpcoming,
+    isLive: true,
   };
 })();

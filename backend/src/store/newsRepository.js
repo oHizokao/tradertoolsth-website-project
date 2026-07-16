@@ -322,6 +322,36 @@ export function createNewsRepository(db) {
       )
       .get().n;
   }
+  /**
+   * นับข่าวแยกตาม publish_status → { published, ready, processing, draft, rejected, failed }
+   * ใช้สำหรับ Admin Dashboard stats (ตามแกน publish_status ไม่ใช่ validation_status)
+   */
+  function countByPublishStatus() {
+    const rows = db
+      .prepare(
+        "SELECT publish_status AS status, COUNT(*) AS cnt FROM news GROUP BY publish_status"
+      )
+      .all();
+    const out = {};
+    for (const r of rows) out[r.status] = r.cnt;
+    return out;
+  }
+  /**
+   * ข่าว published ล่าสุดตาม "เวลาที่กด publish" (published_at)
+   * ต่างจาก listPublished ซึ่งเรียงตาม source_published_at (เวลาข่าวต้นทาง)
+   * ใช้สำหรับ rollback ข่าวที่เพิ่งเผยแพร่
+   */
+  function listLatestPublished(limit = 1) {
+    const rows = db
+      .prepare(
+        `SELECT * FROM news
+         WHERE publish_status = 'published' AND published_at IS NOT NULL
+         ORDER BY published_at DESC
+         LIMIT ?`
+      )
+      .all(Math.max(1, Math.min(100, Math.floor(limit))));
+    return rows.map(rowToNews);
+  }
 
   /**
    * ดึงข่าว published ทั้งหมด (เรียงใหม่ → เก่า) โดยไม่ตัด limit/offset
@@ -371,6 +401,8 @@ export function createNewsRepository(db) {
     countByStatus,
     countAll,
     countPublished,
+    countByPublishStatus,
+    listLatestPublished,
     // updates (status แยก)
     updateValidationStatus,
     updatePublishStatus,

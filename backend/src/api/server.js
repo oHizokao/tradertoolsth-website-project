@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { toPublicNews, publicCategory } from "./publicNews.js";
+import { createCalendarApiHandler } from "./calendarApi.js";
+import { createMarketApiHandler } from "./marketApi.js";
 import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
 import { validateRewritten } from "../ai/validator.js";
 import { makeOwnedPlaceholder } from "../image/imagePipeline.js";
@@ -243,10 +245,50 @@ async function serveStatic(req, res, options, pathname) {
 
 export function createRequestHandler(options) {
   const { repo, updater, scheduler, autoPilot, auditRepo } = options;
+
+  // Phase 12 — Economic Calendar handler (public + admin refresh)
+  // สร้างครั้งเดียว ถ้า calendarService ถูกส่งเข้ามา
+  const calendarHandler = options.calendarService
+    ? createCalendarApiHandler({
+        calendarService: options.calendarService,
+        json,
+        isAuthorizedAny,
+        isOriginAllowed,
+      })
+    : null;
+
+  // Phase 13 — Market Ticker handler (public, read-only)
+  const marketHandler = options.marketService
+    ? createMarketApiHandler({
+        marketService: options.marketService,
+        json,
+      })
+    : null;
+
   return async function requestHandler(req, res) {
     try {
       const url = new URL(req.url || "/", "http://localhost");
       const pathname = url.pathname;
+
+      // ===== Phase 12 — Economic Calendar (public + admin refresh) =====
+      // ต้องอยู่ก่อน /api/admin/* blocks เพื่อให้ /api/admin/calendar/refresh
+      // ถูกจัดการโดย calendar handler แทนที่จะตกไป generic admin block
+      if (calendarHandler) {
+        const handled = calendarHandler(req, res, url, options);
+        if (handled) return;
+        if (handled === false && (pathname === "/api/calendar" || pathname === "/api/calendar/upcoming" || pathname === "/api/admin/calendar/refresh")) {
+          return json(res, 405, { error: "method_not_allowed" });
+        }
+      }
+
+      // ===== Phase 13 — Market Ticker (public, read-only) =====
+      if (marketHandler) {
+        const handled = await marketHandler(req, res, url);
+        if (handled) return;
+        if (handled === false && (pathname === "/api/market-ticker" || pathname === "/api/market-ticker/status")) {
+          return json(res, 405, { error: "method_not_allowed" });
+        }
+      }
 
       if (req.method === "GET" && pathname === "/api/health") {
         return json(res, 200, {
@@ -360,7 +402,7 @@ export function createRequestHandler(options) {
         }
 
         // state-changing — ตรวจ Origin (CSRF)
-        const stateChanging = ["enable", "disable", "run-once", "emergency-stop", "clear-emergency"];
+        const stateChanging = ["enable", "disable", "run-once", "emergency-stop", "clear-emergency", "rollback"];
         if (req.method === "POST" && stateChanging.includes(subPath)) {
           if (!isOriginAllowed(req, allowedOrigins)) {
             return json(res, 403, { error: "origin_not_allowed" });
@@ -381,6 +423,23 @@ export function createRequestHandler(options) {
           if (subPath === "clear-emergency") {
             autoPilot.clearEmergencyStop();
             return json(res, 200, { ok: true, status: autoPilot.getStatus() });
+          }
+          if (subPath === "rollback") {
+            // Rollback ข่าว published ล่าสุด → 'ready' (manual undo)
+            // state-changing → ตรวจ Origin แล้วข้างต้นใน stateChanging block
+            const body = await readJson(req).catch(() => ({}));
+            const result = autoPilot.rollbackLatestPublished({
+              reviewer: body.reviewer ? String(body.reviewer).slice(0, 80) : undefined,
+            });
+            if (!result.ok) {
+              // no_published_news หรือ update_failed → 409
+              return json(res, 409, { error: result.error });
+            }
+            return json(res, 200, {
+              ok: true,
+              ...result,
+              status: autoPilot.getStatus(),
+            });
           }
           if (subPath === "run-once") {
             if (autoPilot._running) {
@@ -408,12 +467,35 @@ export function createRequestHandler(options) {
         if (!options.adminToken) {
           return json(res, 503, { error: "admin_api_disabled" });
         }
-        if (!isAuthorized(req, options.adminToken)) {
+        // Auth: cookie (admin_session) OR Bearer — ขยายจาก Bearer-only เพื่อให้
+        // News Management UI ที่ login ผ่าน /api/admin/auto-pilot/login ใช้ session เดียวกันได้
+        const adminToken = options.adminToken || "";
+        const allowedOrigins = options.adminAllowedOrigins || [];
+        if (!isAuthorizedAny(req, adminToken)) {
           return json(res, 401, { error: "unauthorized" });
+        }
+        // CSRF/Origin check สำหรับ state-changing methods (POST/PUT/DELETE/PATCH)
+        // GET/HEAD ผ่านได้โดยไม่ต้องตรวจ Origin (เหมือน pattern auto-pilot)
+        const isStateChanging =
+          req.method === "POST" || req.method === "PUT" || req.method === "DELETE" || req.method === "PATCH";
+        if (isStateChanging && !isOriginAllowed(req, allowedOrigins)) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
+        if (req.method === "GET" && pathname === "/api/admin/news/counts") {
+          // stats สำหรับ Admin Dashboard: แยกตาม publish_status + validation_status
+          return json(res, 200, {
+            publishStatus: repo.countByPublishStatus(),
+            validationStatus: repo.countByStatus(),
+            total: repo.countAll(),
+          });
         }
         if (req.method === "GET" && pathname === "/api/admin/news") {
           const limit = clampInt(url.searchParams.get("limit"), 100, 1, 200);
-          const rows = repo.listAll(limit, 0).map((item) => ({
+          const statusFilter = url.searchParams.get("status"); // filter ตาม publish_status
+          const source = statusFilter
+            ? repo.listByPublishStatus(statusFilter, limit)
+            : repo.listAll(limit, 0);
+          const rows = source.map((item) => ({
             id: item.id,
             title: item.thaiTitle || item.originalTitle,
             validationStatus: item.validationStatus,
@@ -422,6 +504,8 @@ export function createRequestHandler(options) {
             imageStatus: item.imageStatus,
             imageReviewRequired: item.imageReviewRequired,
             sourceUrl: item.sourceUrl,
+            sourceName: item.source,
+            sourcePublishedAt: item.sourcePublishedAt,
             createdAt: item.createdAt,
           }));
           return json(res, 200, rows);

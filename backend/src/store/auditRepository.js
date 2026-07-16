@@ -26,6 +26,7 @@ export const AUDIT_STAGES = Object.freeze({
   RUN_COMPLETED: "run_completed",
   RUN_FAILED: "run_failed",
   EMERGENCY_STOP: "emergency_stop",
+  NEWS_ROLLBACK: "news_rollback",
 });
 
 /**

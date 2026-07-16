@@ -118,15 +118,14 @@
 .subpage-v2 .nav-actions .btn--teal { color: #17202a; background: linear-gradient(135deg, #efcb68, #dba12a); border-color: #e7b544; }
 .subpage-v2 .nav-actions .btn--teal:hover { color: #17202a; background: #f2cc65; }
 
-/* Make the market strip visible under the fixed header. */
+/* Live Market ticker — วางใต้ fixed navbar (ไม่ทำให้ header สูงขึ้น) */
 .subpage-v2 .ticker-tape {
+  position: relative;
+  z-index: 5;
   margin-top: 62px;
   background: #061a30;
   border-color: rgba(120, 160, 196, 0.12);
 }
-
-.subpage-v2 .ticker-tape__track { padding-block: 9px; }
-.subpage-v2 .ticker-tape__item { color: #91a3b4; }
 
 .subpage-v2 .page {
   padding-top: 52px;
@@ -378,4 +377,195 @@
 @media (max-width: 480px) {
   .subpage-v2 #newsLatest,
   .subpage-v2 #newsMore { grid-template-columns: 1fr !important; }
+}
+
+/* Market Overview */
+.subpage-v2 .market-head { max-width: 760px; }
+.subpage-v2 .market-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; margin: 22px 0 14px; flex-wrap: wrap;
+}
+.subpage-v2 .market-filters { display: flex; flex-wrap: wrap; }
+.subpage-v2 .market-status {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  min-height: 42px; margin-bottom: 16px; padding: 10px 14px;
+  border: 1px solid var(--v2-border); border-radius: 10px;
+  background: rgba(8, 31, 52, 0.72); color: #9fb3c5; font-size: 13px;
+}
+.subpage-v2 .market-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #efbd45; }
+.subpage-v2 .market-status--live .dot { background: #20c8b0; box-shadow: 0 0 0 4px rgba(32, 200, 176, 0.12); }
+.subpage-v2 .market-status--unavailable .dot { background: #ef6b78; }
+.subpage-v2 .market-layout {
+  display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr);
+  align-items: start; gap: 18px;
+}
+.subpage-v2 .market-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0;
+}
+.subpage-v2 .market-card {
+  position: relative; min-width: 0; overflow: hidden;
+  border: 1px solid var(--v2-border); border-radius: 12px;
+  background: linear-gradient(145deg, rgba(12, 43, 69, .96), rgba(6, 27, 47, .96));
+  transition: border-color .2s ease, transform .2s ease;
+}
+.subpage-v2 .market-card:hover,
+.subpage-v2 .market-card.is-selected { border-color: rgba(229, 179, 63, .62); transform: translateY(-1px); }
+.subpage-v2 .market-card__main {
+  width: 100%; min-height: 154px; padding: 16px; color: inherit; text-align: left;
+  border: 0; background: transparent; cursor: pointer;
+}
+.subpage-v2 .market-card__top { display: flex; justify-content: space-between; gap: 10px; }
+.subpage-v2 .market-card__top strong { color: #f5f8fb; font-size: 16px; }
+.subpage-v2 .market-card__top small { color: #8da6bb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subpage-v2 .market-card__price { display: block; margin-top: 18px; color: #fff; font-size: 25px; font-weight: 700; }
+.subpage-v2 .market-card__change { display: block; margin-top: 3px; font-size: 13px; font-weight: 600; color: #91a5b7; }
+.subpage-v2 .market-card--up .market-card__change { color: #28cfb5; }
+.subpage-v2 .market-card--down .market-card__change { color: #ef6b78; }
+.subpage-v2 .market-watch {
+  position: absolute; right: 10px; bottom: 9px; width: 32px; height: 32px;
+  border: 0; border-radius: 8px; background: rgba(255,255,255,.05);
+  color: #71879a; cursor: pointer; font-size: 18px;
+}
+.subpage-v2 .market-watch.is-active { color: #efbd45; background: rgba(239,189,69,.12); }
+.subpage-v2 .market-sparkline { display: block; width: calc(100% - 42px); height: 30px; margin-top: 10px; }
+.subpage-v2 svg.market-sparkline polyline { stroke: #6f8ba1; stroke-width: 2; }
+.subpage-v2 svg.market-sparkline--up polyline { stroke: #20c8b0; }
+.subpage-v2 svg.market-sparkline--down polyline { stroke: #ef6b78; }
+.subpage-v2 .market-sparkline--empty { color: #60798e; font-size: 11px; line-height: 30px; }
+.subpage-v2 .market-detail {
+  position: sticky; top: 132px; min-width: 0; padding: 20px;
+  border: 1px solid var(--v2-border); border-radius: 12px; background: rgba(8, 34, 56, .95);
+}
+.subpage-v2 .market-detail__head { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; }
+.subpage-v2 .market-detail__head span { color: #8ea6ba; font-size: 12px; }
+.subpage-v2 .market-detail__head h2 { margin: 2px 0 0; color: #fff; font-size: 24px; }
+.subpage-v2 .market-detail__head > strong { color: #efbd45; font-size: 24px; }
+.subpage-v2 .market-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 18px 0; }
+.subpage-v2 .market-stats div { min-width: 0; padding: 10px; border-radius: 8px; background: rgba(255,255,255,.035); }
+.subpage-v2 .market-stats dt { color: #7f98ad; font-size: 10px; }
+.subpage-v2 .market-stats dd { margin: 4px 0 0; color: #dce6ee; font-size: 12px; overflow-wrap: anywhere; }
+.subpage-v2 .market-related { border-top: 1px solid var(--v2-border); padding-top: 15px; margin-top: 15px; }
+.subpage-v2 .market-related h3 { margin: 0 0 10px; color: #eef4f8; font-size: 14px; }
+.subpage-v2 .market-related a,
+.subpage-v2 .market-related > div { display: grid; gap: 2px; padding: 9px 0; border-bottom: 1px solid rgba(116,151,180,.12); color: #bcd0df; font-size: 12px; }
+.subpage-v2 .market-related small,
+.subpage-v2 .market-related p { color: #7891a6; font-size: 11px; }
+.subpage-v2 .market-card--skeleton { min-height: 154px; padding: 18px; }
+.subpage-v2 .market-card--skeleton span { display: block; height: 12px; margin-bottom: 16px; border-radius: 6px; background: linear-gradient(90deg,#102e47,#183b58,#102e47); background-size: 200% 100%; animation: market-shimmer 1.2s linear infinite; }
+.subpage-v2 .market-card--skeleton span:nth-child(2) { width: 72%; height: 24px; }
+.subpage-v2 .market-card--skeleton span:nth-child(3) { width: 42%; }
+@keyframes market-shimmer { to { background-position: -200% 0; } }
+
+@media (max-width: 900px) {
+  .subpage-v2 .market-layout { grid-template-columns: 1fr; }
+  .subpage-v2 .market-detail { position: static; }
+}
+@media (max-width: 560px) {
+  .subpage-v2 .market-grid { grid-template-columns: 1fr; }
+  .subpage-v2 .market-toolbar .btn { width: 100%; }
+  .subpage-v2 .market-filters { width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .subpage-v2 .market-filters button { flex: 0 0 auto; }
+  .subpage-v2 .market-stats { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .subpage-v2 .market-card,
+  .subpage-v2 .market-card--skeleton span { transition: none; animation: none; }
+}
+
+/* ============================================================
+   Phase 12 — Economic Calendar (V2)
+   ------------------------------------------------------------
+   - stale state banner
+   - refresh button states (idle/loading)
+   - calendar status bar (อัปเดตล่าสุด + stale)
+   - Mobile: ตาราง calendar ไม่ล้นจอ (card layout)
+   ============================================================ */
+
+/* badge--ghost: สำหรับ Tentative tag */
+.subpage-v2 .badge--ghost {
+  color: var(--text-muted);
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+  font-weight: var(--fw-normal);
+  font-size: var(--text-xs);
+}
+
+/* calendar status bar */
+.subpage-v2 .cal-status {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.subpage-v2 .cal-stale {
+  color: var(--gold-600);
+  font-weight: var(--fw-medium);
+}
+
+/* filter-bar: รองรับ refresh button ทางขวา (wrap บนมือถือ) */
+.subpage-v2 .filter-bar {
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+/* refresh button states */
+.subpage-v2 #calRefreshBtn[data-state="loading"] {
+  opacity: 0.6;
+  cursor: wait;
+}
+.subpage-v2 #calRefreshBtn[data-state="loading"] svg {
+  animation: cal-spin 0.8s linear infinite;
+}
+@keyframes cal-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* legend compact บนมือถือ */
+.subpage-v2 .cal-legend { flex-wrap: wrap; gap: 10px 14px; }
+
+/* calendar-day header — รองรับ badge High Impact ใน count */
+.subpage-v2 .calendar-day__count {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Mobile: ตาราง calendar → card layout ไม่ล้นจอ
+   ใช้ data-label ของแต่ละ cell ผ่าน attr (แสดงในมุมมอง card)
+   แต่เนื่องจากตาราง render ฝั่ง JS ทั่วไป เราใช้ horizontal scroll
+   สำหรับตารางเล็ก และแปลงเป็น block เมื่อจอแคบมาก */
+@media (max-width: 720px) {
+  .subpage-v2 .cal-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .subpage-v2 .cal-table-wrap table.data {
+    min-width: 560px; /* รักษาความกว้างขั้นต่ำให้อ่านได้ แล้ว scroll แนวนอน */
+  }
+  .subpage-v2 .filter-bar .cluster { flex-wrap: wrap; }
+  .subpage-v2 #rangeFilter,
+  .subpage-v2 #impactFilter { flex-wrap: wrap; }
+}
+
+@media (max-width: 480px) {
+  /* จอแคบมาก: ตารางเล็กลง + font ลด */
+  .subpage-v2 .cal-table-wrap table.data {
+    font-size: var(--fs-xs);
+    min-width: 480px;
+  }
+  .subpage-v2 .cal-table-wrap table.data th,
+  .subpage-v2 .cal-table-wrap table.data td {
+    padding: 8px 6px;
+    white-space: nowrap;
+  }
+  /* เหตุการณ์ column อนุญาตให้ wrap ได้ (เป็นข้อความยาว) */
+  .subpage-v2 .cal-table-wrap table.data td:nth-child(4) {
+    white-space: normal;
+    min-width: 140px;
+  }
 }

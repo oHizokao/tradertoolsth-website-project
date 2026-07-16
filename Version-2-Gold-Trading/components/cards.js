@@ -163,24 +163,74 @@ TT.cards = (function () {
   }
 
   // ---------- Calendar Row ----------
+  // รองรับทั้ง field ใหม่จาก API (scheduledAtUtc/eventName/actual/forecast/previous/isTentative)
+  // และ field เดิม (time/event) เพื่อ backward-compat
   function calendarRow(e) {
-    const impactBadge = `<span class="badge badge--${e.impact}">${h.impactText(
-      e.impact
+    const impact = e.impact || "low";
+    const impactBadge = `<span class="badge badge--${impact}">${h.impactText(
+      impact
     )}</span>`;
+    // time แบบ Asia/Bangkok ไม่พึ่ง timezone เครื่อง — ใช้ scheduledAtUtc แล้ว +7
+    const iso = e.scheduledAtUtc || e.time;
+    const timeCell = e.isTentative
+      ? `<span class="num text-muted" title="เวลายังไม่แน่นอน">~${h.formatBangkok(iso, { timeOnly: true, prefix: "" })}</span>`
+      : `<span class="num">${h.formatBangkok(iso, { timeOnly: true, prefix: "" })}</span>`;
+    // currency badge + ธงประเทศ (ใช้ emoji flag จากรหัสสกุลเงิน)
+    const flag = currencyFlag(e.currency || e.country);
+    const currencyCell = `<span class="cluster"><span aria-hidden="true">${h.esc(flag)}</span><span class="badge">${h.esc(
+      e.currency || e.country || ""
+    )}</span></span>`;
+    // Actual: ถ้ามี ใช้สีตามทิศทาง (เทียบ forecast); ถ้าไม่มี แสดง —
     const actualCell = e.actual
-      ? `<span class="num ${e.actual > e.forecast ? "text-buy" : "text-sell"}">${h.esc(
-          e.actual
-        )}</span>`
+      ? `<span class="num ${actualDirectionClass(e)}">${h.esc(e.actual)}</span>`
       : `<span class="text-muted">—</span>`;
+    const eventCell = e.isTentative
+      ? `${h.esc(e.eventName || e.event)} <span class="badge badge--ghost" title="เวลายังไม่แน่นอน">Tentative</span>`
+      : h.esc(e.eventName || e.event);
     return `<tr>
-      <td><span class="num">${h.formatTime(e.time, { timeOnly: true })}</span></td>
-      <td><span class="badge">${h.esc(e.currency)}</span></td>
+      <td>${timeCell}</td>
+      <td>${currencyCell}</td>
       <td>${impactBadge}</td>
-      <td>${h.esc(e.event)}</td>
-      <td class="num">${h.esc(e.previous)}</td>
-      <td class="num">${h.esc(e.forecast)}</td>
+      <td>${eventCell}</td>
+      <td class="num">${e.previous ? h.esc(e.previous) : `<span class="text-muted">—</span>`}</td>
+      <td class="num">${e.forecast ? h.esc(e.forecast) : `<span class="text-muted">—</span>`}</td>
       <td>${actualCell}</td>
     </tr>`;
+  }
+
+  /** แปลงรหัสสกุลเงิน (USD/EUR/...) → emoji ธงประเทศ (ใช้ regional indicator) */
+  function currencyFlag(currency) {
+    const COUNTRY_TO_FLAG = {
+      USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", JPY: "🇯🇵", AUD: "🇦🇺",
+      NZD: "🇳🇿", CAD: "🇨🇦", CHF: "🇨🇭", CNY: "🇨🇳", HKD: "🇭🇰",
+      SGD: "🇸🇬", KRW: "🇰🇷", INR: "🇮🇳", MXN: "🇲🇽", BRL: "🇧🇷",
+      ZAR: "🇿🇦", TRY: "🇹🇷", RUB: "🇷🇺", SEK: "🇸🇪", NOK: "🇳🇴",
+      DKK: "🇩🇰", PLN: "🇵🇱", THB: "🇹🇭", IDR: "🇮🇩", MYR: "🇲🇾",
+      PHP: "🇵🇭", VND: "🇻🇳", TWD: "🇹🇼", SAR: "🇸🇦", AED: "🇦🇪",
+    };
+    return COUNTRY_TO_FLAG[currency] || "🏳️";
+  }
+
+  /** กำหนดสี Actual: actual > forecast → text-buy, < → text-sell, เท่ากัน/เทียบไม่ได้ → ปกติ */
+  function actualDirectionClass(e) {
+    const a = parseNumeric(e.actual);
+    const f = parseNumeric(e.forecast);
+    if (a == null || f == null) return "";
+    if (a > f) return "text-buy";
+    if (a < f) return "text-sell";
+    return "";
+  }
+
+  /** parse "0.3%" / "235K" / "-1.2B" → number (สำหรับเทียบทิศทาง Actual) */
+  function parseNumeric(v) {
+    if (v == null) return null;
+    const s = String(v).trim();
+    if (!s) return null;
+    const m = s.match(/^(-?\d+(?:\.\d+)?)\s*([KMBT]?)%?$/i);
+    if (!m) return null;
+    const num = parseFloat(m[1]);
+    const mult = { "": 1, K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[m[2].toUpperCase()] || 1;
+    return num * mult;
   }
 
   // ---------- Knowledge Card ----------

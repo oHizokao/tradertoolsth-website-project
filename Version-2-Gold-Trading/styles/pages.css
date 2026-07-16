@@ -186,170 +186,338 @@
   }
 }
 
-/* ---------- Ticker tape (subpages) ---------- */
+/* ---------- Ticker tape — Live Market (V2) ----------
+   Track-based marquee: เลื่อนขวา→ซ้าย loop ต่อเนื่อง
+   ไม่ทำให้ header สูงขึ้น — วางติดใต้ fixed navbar ผ่าน margin-top
+   รองรับ pause/play, hover-pause, prefers-reduced-motion, mobile swipe
+*/
 .ticker-tape {
-  --ticker-start: calc(100vw + 220px);
-  height: 42px;
-  background: var(--navy-900);
+  --tt-h: 40px;
+  --tt-bg: #061a30;
+  --tt-track-dur: 38s;
+  position: relative;
+  height: var(--tt-h);
+  background: var(--tt-bg);
   color: var(--text-on-navy-soft);
-  border-bottom: 1px solid var(--navy-800);
+  border-bottom: 1px solid rgba(120, 160, 196, 0.14);
   overflow: hidden;
   white-space: nowrap;
-  position: relative;
-  perspective: 700px;
+  display: flex;
+  align-items: stretch;
 }
 
+/* edge fades */
 .ticker-tape::before,
 .ticker-tape::after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 80px;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
 }
-
 .ticker-tape::before {
   left: 0;
-  width: 150px;
-  background: linear-gradient(90deg, var(--navy-900) 40%, transparent);
+  width: 120px;
+  background: linear-gradient(90deg, var(--tt-bg) 55%, transparent);
 }
-
 .ticker-tape::after {
   right: 0;
-  background: linear-gradient(270deg, var(--navy-900), transparent);
+  width: 90px;
+  background: linear-gradient(270deg, var(--tt-bg), transparent);
 }
 
+/* ---------- Live label (ซ้าย) ---------- */
+.ticker-tape__label {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px 0 16px;
+  background: linear-gradient(90deg, var(--tt-bg) 78%, transparent);
+  color: var(--gold-400);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+.ticker-tape__live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal-500);
+  box-shadow: 0 0 0 3px rgba(15, 197, 182, 0.12), 0 0 9px rgba(15, 197, 182, 0.65);
+  animation: ticker-live-pulse 1.9s ease-in-out infinite;
+}
+.ticker-tape__live-dot[data-live="stale"] {
+  background: var(--gold-500);
+  box-shadow: 0 0 0 3px rgba(216, 166, 42, 0.12), 0 0 9px rgba(216, 166, 42, 0.55);
+}
+.ticker-tape__live-dot[data-live="off"] {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(200, 75, 85, 0.12), 0 0 9px rgba(200, 75, 85, 0.5);
+  animation: none;
+}
+.ticker-tape__live-text { white-space: nowrap; }
+
+/* ---------- Pause / play button ---------- */
+.ticker-tape__play {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+  width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid rgba(120, 160, 196, 0.16);
+  color: var(--text-on-navy-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.ticker-tape__play:hover,
+.ticker-tape__play:focus-visible {
+  color: #fff;
+  background: rgba(120, 160, 196, 0.1);
+  outline: none;
+}
+.ticker-tape__play-icon {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  display: none;
+}
+/* default = playing → แสดงไอคอน pause */
+.ticker-tape__play-icon--pause { display: block; }
+.ticker-tape__play-icon--play { display: none; }
+/* ถ้าผู้ใช้ pause → แสดงไอคอน play */
+.ticker-tape.is-paused .ticker-tape__play-icon--pause { display: none; }
+.ticker-tape.is-paused .ticker-tape__play-icon--play { display: block; }
+
+/* ---------- Viewport + track (marquee) ---------- */
+.ticker-tape__viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
 .ticker-tape__track {
   position: absolute;
   inset: 0;
-  transform-style: preserve-3d;
+  display: flex;
+  align-items: center;
+  width: max-content;
+  will-change: transform;
+  animation: ticker-marquee var(--tt-track-dur) linear infinite;
 }
-
-.ticker-tape:hover .ticker-tape__item {
+.ticker-tape__row {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding-left: 24px;
+}
+.ticker-tape.is-paused .ticker-tape__track,
+.ticker-tape__track.is-motion-off {
   animation-play-state: paused;
 }
 
+@keyframes ticker-marquee {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* ---------- Items ---------- */
 .ticker-tape__item {
-  position: absolute;
-  top: 5px;
-  left: 0;
-  min-width: 190px;
-  height: 31px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 0 11px 0 9px;
-  border: 1px solid rgba(120, 160, 196, 0.13);
+  height: 28px;
+  margin-right: 10px;
+  padding: 0 11px;
+  border: 1px solid rgba(120, 160, 196, 0.14);
   border-radius: 7px;
-  background: linear-gradient(135deg, rgba(13, 41, 67, 0.95), rgba(5, 27, 47, 0.95));
-  box-shadow: 0 4px 14px rgba(0, 7, 16, 0.18);
+  background: linear-gradient(135deg, rgba(13, 41, 67, 0.92), rgba(5, 27, 47, 0.92));
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-on-navy-soft);
-  will-change: transform, opacity;
-  backface-visibility: hidden;
-  animation: ticker-card-flow var(--ticker-duration) linear infinite;
-  animation-delay: var(--ticker-delay);
+  white-space: nowrap;
 }
-
 .ticker-tape__item .pair {
   font-family: var(--font-sans);
   color: #fff;
   font-weight: var(--fw-semibold);
   font-size: 12px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
 }
-
+.ticker-tape__label-sm {
+  font-weight: var(--fw-regular);
+  font-size: 10px;
+  color: var(--text-on-navy-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
 .ticker-tape__status {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--danger);
-  box-shadow: 0 0 8px rgba(240, 120, 120, 0.45);
+  background: var(--ink-400);
 }
-
 .ticker-tape__status--up {
   background: var(--teal-500);
-  box-shadow: 0 0 8px rgba(37, 188, 168, 0.55);
+  box-shadow: 0 0 7px rgba(15, 197, 182, 0.5);
 }
-
-.ticker-tape__price { color: #8fa4b8; }
-
+.ticker-tape__status--down {
+  background: var(--danger);
+  box-shadow: 0 0 7px rgba(200, 75, 85, 0.45);
+}
+.ticker-tape__status--flat { background: var(--text-on-navy-muted); }
+.ticker-tape__price {
+  color: #d6e2ef;
+  font-weight: var(--fw-medium);
+}
+.ticker-tape__chg { font-variant-numeric: tabular-nums; }
+.ticker-tape__pct {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+}
 .ticker-tape__spark {
-  width: 38px;
-  height: 15px;
+  width: 36px;
+  height: 14px;
   margin-left: 2px;
   fill: none;
   stroke: var(--danger);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  filter: drop-shadow(0 0 3px rgba(240, 120, 120, 0.2));
 }
+.ticker-tape__spark--up { stroke: var(--teal-500); }
+.ticker-tape__spark--flat { stroke: var(--text-on-navy-muted); }
 
-.ticker-tape__spark--up {
-  stroke: var(--teal-500);
-  filter: drop-shadow(0 0 3px rgba(37, 188, 168, 0.25));
-}
-
-.ticker-tape__label {
-  position: absolute;
+/* ---------- Meta (status badge + updated) — ด้านขวา ไม่รบกวน layout ---------- */
+.ticker-tape__meta {
+  position: relative;
   z-index: 4;
-  inset: 0 auto 0 0;
-  width: 118px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding-left: 16px;
-  color: var(--gold-400);
-  background: linear-gradient(90deg, var(--navy-900) 76%, transparent);
+  gap: 10px;
+  padding: 0 14px;
+  border-left: 1px solid rgba(120, 160, 196, 0.16);
+  background: linear-gradient(270deg, var(--tt-bg) 78%, transparent);
+}
+.ticker-tape__status-badge {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  line-height: 1;
+}
+.ticker-tape__status-badge--live {
+  color: var(--teal-500);
+  background: rgba(15, 197, 182, 0.12);
+  border: 1px solid rgba(15, 197, 182, 0.3);
+}
+.ticker-tape__status-badge--stale {
+  color: var(--gold-400);
+  background: rgba(216, 166, 42, 0.12);
+  border: 1px solid rgba(216, 166, 42, 0.3);
+}
+.ticker-tape__status-badge--error {
+  color: #f3a8ad;
+  background: rgba(200, 75, 85, 0.14);
+  border: 1px solid rgba(200, 75, 85, 0.32);
+}
+.ticker-tape__status-badge--empty {
+  color: var(--text-on-navy-muted);
+  background: rgba(120, 160, 196, 0.1);
+  border: 1px solid rgba(120, 160, 196, 0.2);
+}
+.ticker-tape__updated {
+  font-size: 10px;
+  color: var(--text-on-navy-muted);
+  white-space: nowrap;
 }
 
-.ticker-tape__label span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--teal-500);
-  box-shadow: 0 0 0 4px rgba(37, 188, 168, 0.1), 0 0 9px rgba(37, 188, 168, 0.7);
-  animation: ticker-live-pulse 1.8s ease-in-out infinite;
+/* ---------- Skeleton (loading) ---------- */
+.ticker-tape__skeleton {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  height: 100%;
+}
+.ticker-tape__skeleton-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ticker-tape__sk-bar {
+  display: inline-block;
+  height: 9px;
+  width: 42px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, rgba(120,160,196,0.12), rgba(120,160,196,0.24), rgba(120,160,196,0.12));
+  background-size: 220% 100%;
+  animation: ticker-sk-shimmer 1.4s linear infinite;
+}
+.ticker-tape__sk-bar--w2 { width: 60px; }
+.ticker-tape__sk-bar--w3 { width: 28px; }
+@keyframes ticker-sk-shimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
 }
 
-@keyframes ticker-card-flow {
-  0% {
-    opacity: 0;
-    transform: translate3d(var(--ticker-start), 0, 0) rotateY(0deg) rotateZ(0deg) scale(0.94);
-  }
-  3% { opacity: 1; }
-  82% {
-    opacity: 1;
-    transform: translate3d(24px, 0, 0) rotateY(0deg) rotateZ(0deg) scale(1);
-  }
-  91% {
-    opacity: 0.92;
-    transform: translate3d(-105px, 0, -28px) rotateY(-48deg) rotateZ(-4deg) scale(0.9);
-  }
-  100% {
-    opacity: 0;
-    transform: translate3d(-280px, 0, -100px) rotateY(-112deg) rotateZ(-9deg) scale(0.7);
-  }
+/* ---------- Empty / error message (centered) ---------- */
+.ticker-tape__empty {
+  width: 100%;
+  text-align: center;
+  color: var(--text-on-navy-muted);
+  font-size: 12px;
+  font-family: var(--font-sans);
 }
+.ticker-tape__empty--error { color: #f3a8ad; }
 
+/* ---------- Live pulse keyframe (dot) ---------- */
 @keyframes ticker-live-pulse {
-  50% { opacity: 0.45; transform: scale(0.78); }
+  50% { opacity: 0.4; transform: scale(0.72); }
 }
 
+/* ---------- prefers-reduced-motion: ปิด marquee + shimmer ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-tape__live-dot,
+  .ticker-tape__sk-bar { animation: none !important; }
+}
+
+/* ---------- Mobile (≤640px) ---------- */
 @media (max-width: 640px) {
-  .ticker-tape { --ticker-start: calc(100vw + 700px); }
-  .ticker-tape__label { width: 20px; padding-left: 7px; color: transparent; }
-  .ticker-tape::before { width: 42px; }
-  .ticker-tape__item { min-width: 128px; padding-inline: 8px; }
-  .ticker-tape__price,
-  .ticker-tape__spark { display: none; }
+  .ticker-tape { --tt-h: 38px; }
+  .ticker-tape__label { padding: 0 8px 0 10px; gap: 5px; }
+  .ticker-tape__live-text { display: none; } /* ซ่อนข้อความ เหลือ dot + ปุ่ม */
+  .ticker-tape::before { width: 60px; }
+  .ticker-tape::after { width: 60px; }
+  .ticker-tape__meta { padding: 0 8px; gap: 6px; }
+  .ticker-tape__updated { display: none; }
+  .ticker-tape__item { margin-right: 7px; padding: 0 9px; gap: 5px; }
+  .ticker-tape__label-sm { display: none; }
+  .ticker-tape__spark { width: 28px; }
+  /* mobile: ถ้า motion ปิด (reduced) หรือ paused → อนุญาต swipe */
+  .ticker-tape.is-paused .ticker-tape__viewport,
+  .ticker-tape__viewport { -webkit-overflow-scrolling: touch; }
+}
+
+/* ---------- Very small (≤390px) — รักษา readability ---------- */
+@media (max-width: 390px) {
+  .ticker-tape__status-badge { font-size: 9px; padding: 2px 6px; }
+  .ticker-tape__item { font-size: 10.5px; }
+  .ticker-tape__item .pair { font-size: 11px; }
+  .ticker-tape__price { font-size: 10.5px; }
+  .ticker-tape__chg { display: none; } /* ยังแสดง price + % */
 }
 
 /* ---------- Trust strip — divider เส้นบาง ---------- */
@@ -1030,7 +1198,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ticker-tape__item),
+  *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -1041,6 +1209,13 @@
   .reveal {
     opacity: 1;
     transform: none;
+  }
+  /* ticker มีปุ่ม pause ของตัวเอง จึงคงการเลื่อนแบบช้าไว้ตามคำขอผู้ใช้ */
+  .ticker-tape__track {
+    animation-name: ticker-marquee !important;
+    animation-duration: var(--tt-track-dur) !important;
+    animation-timing-function: linear !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
