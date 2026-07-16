@@ -15,8 +15,10 @@
           <div class="page-head">
             <span class="eyebrow">${TT.icon("signal", 14)} Trading Signals</span>
             <h1>Signal <span class="text-grad-blue">เทรด</span></h1>
-            <p>สัญญาณซื้อขายจากระบบ EA บน MetaTrader 5 พร้อม Entry, Stop Loss, Take Profit และสถานะ ใช้เป็นแนวทางเท่านั้น</p>
+            <p>พื้นที่สำหรับสัญญาณซื้อขายจากระบบ EA บน MetaTrader 5 เมื่อเชื่อมต่อแหล่งข้อมูลจริงแล้ว</p>
           </div>
+
+          ${TT.SignalService.isLive ? "" : `<div class="alert alert--warn" style="margin-bottom:24px"><span class="alert__icon">${TT.icon("warning", 18)}</span><div><strong>ระบบ Signal ยังไม่เปิดใช้งาน</strong><br>ขณะนี้ยังไม่มี API จาก EA/MT5 จึงไม่แสดงข้อมูลจำลองหรือสัญญาณซื้อขายที่อาจทำให้เข้าใจผิด</div></div>`}
 
           <!-- Stats -->
           <div class="signal-summary" id="signalStats" style="margin-bottom:24px"></div>
@@ -40,7 +42,7 @@
               </div>
             </div>
             <span class="badge" style="margin-left:auto">
-              <span class="dot dot--live"></span> Live จาก EA/MT5
+              ${TT.SignalService.isLive ? `<span class="dot dot--live"></span> Live จาก EA/MT5` : "ยังไม่เชื่อมต่อ EA/MT5"}
             </span>
           </div>
 
@@ -121,6 +123,9 @@
 
   async function loadStats() {
     const el = document.getElementById("signalStats");
+    if (!TT.SignalService.isLive) {
+      return TT.h.empty(el, "ยังไม่มีสถิติสัญญาณจริง", "สถิติจะแสดงหลังเชื่อมต่อ EA/MT5 API");
+    }
     try {
       const s = await TT.SignalService.getStats();
       el.innerHTML = `
@@ -148,6 +153,9 @@
 
   async function loadList() {
     const el = document.getElementById("signalList");
+    if (!TT.SignalService.isLive) {
+      return TT.h.empty(el, "ยังไม่มีสัญญาณจากระบบจริง", "ไม่มีการใช้ข้อมูลจำลองแทนสัญญาณจริง");
+    }
     TT.h.loading(el, 3);
     try {
       const list = await TT.SignalService.fetchSignals(state);

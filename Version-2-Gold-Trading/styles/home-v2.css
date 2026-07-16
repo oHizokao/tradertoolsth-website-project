@@ -174,10 +174,7 @@
 .v2-calendar-body { padding-inline: 14px; }
 .v2-calendar-row { min-height: 43px; border-bottom: 1px solid rgba(129, 163, 191, 0.09); color: #dfe7ee; font-size: 11px; }
 .v2-event { display: flex; align-items: center; min-width: 0; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.v2-mini-flag { width: 17px; height: 12px; display: inline-block; flex-shrink: 0; position: relative; overflow: hidden; border-radius: 2px; }
-.v2-mini-flag--us { background: repeating-linear-gradient(180deg,#c83d4c 0 2px,#f7f7f4 2px 4px); }
-.v2-mini-flag--us::after { content: ""; position: absolute; left: 0; top: 0; width: 8px; height: 6px; background: #315b91; }
-.v2-mini-flag--gb { background: linear-gradient(32deg,transparent 42%,#fff 42% 49%,#c43e4b 49% 55%,#fff 55% 62%,transparent 62%),linear-gradient(-32deg,#244b84 42%,#fff 42% 49%,#c43e4b 49% 55%,#fff 55% 62%,#244b84 62%); }
+.v2-mini-flag { width: 24px; height: 16px; display: block; flex-shrink: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.2); border-radius: 3px; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,.28); }
 .v2-event small { color: #c1cdd7; font-size: 10px; }
 .v2-impact { display: inline-flex; align-items: center; gap: 4px; }
 .v2-impact i { width: 7px; height: 7px; border-radius: 50%; background: #344b61; box-shadow: inset 0 0 0 1px rgba(165, 187, 205, 0.12); }

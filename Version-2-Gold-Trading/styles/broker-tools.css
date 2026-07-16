@@ -1,0 +1,491 @@
+/* ============================================================
+   Broker Tools page — styles
+   ------------------------------------------------------------
+   - ใช้ CSS variable / token เดิม (tokens.css + subpages-v2.css)
+   - Responsive ทุกขนาด, ไม่มี horizontal overflow
+   - ไม่แตะ CSS ของหน้าอื่น
+   ============================================================ */
+
+/* ---------- Layout grid: 2 คอลัมน์บนจอกว้าง, 1 คอลัมน์บนจอแคบ ---------- */
+.btools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-5, 1.5rem);
+  margin-top: var(--sp-5, 1.5rem);
+  /* กัน horizontal overflow เด็ดขาด */
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* การ์ดเครื่องมือ */
+.btools-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3, 0.75rem);
+  padding: var(--sp-5, 1.5rem);
+  min-width: 0; /* สำคัญ: ป้องกัน grid blowout */
+  position: relative;
+}
+
+/* การ์ดที่กว้างขึาดเต็ม (trade cost comparison) */
+.btools-card--wide {
+  grid-column: 1 / -1;
+}
+
+.btools-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3, 0.75rem);
+}
+
+.btools-card__title {
+  margin: 0;
+  font-size: var(--fs-lg, 1.25rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.btools-card__desc {
+  margin: 0;
+  font-size: var(--fs-sm, 13px);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ---------- Form ---------- */
+.btools-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3, 0.75rem);
+  width: 100%;
+  min-width: 0;
+}
+
+/* ฟอร์มในการ์ดเปรียบเทียบแบบ inline 4 คอลัมน์ */
+.btools-form--inline {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-2, 0.5rem);
+}
+
+.btools-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.btools-field--sm {
+  gap: 0.3rem;
+}
+
+.btools-field__label {
+  font-size: var(--fs-xs, 12px);
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.btools-field__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.btools-field__prefix {
+  position: absolute;
+  left: 0.6rem;
+  font-size: var(--fs-sm, 13px);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-weight: 600;
+}
+
+/* Input ของหน้านี้ — style เอง ไม่พึ่ง .field ของ components.css
+   เพื่อกะทัดรัดและเข้ากับ dark theme ของ subpage-v2 */
+.btools-field__input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.55rem 0.7rem;
+  font-family: var(--font-mono, "Noto Sans", monospace);
+  font-size: var(--fs-sm, 13px);
+  background: var(--bg-surface-2, var(--surface-muted));
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  color: var(--text-primary);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.btools-field__control .btools-field__input {
+  padding-left: 1.5rem; /* เว้นที่ให้ prefix */
+}
+
+.btools-field__input:hover {
+  border-color: var(--border-strong);
+}
+
+.btools-field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-elevated, var(--surface));
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.btools-field__input::placeholder {
+  color: var(--text-faint);
+  font-family: var(--font-sans, sans-serif);
+}
+
+select.btools-field__input {
+  cursor: pointer;
+  padding-right: 1.8rem;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2371869b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+}
+
+/* ---------- Actions ---------- */
+.btools-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2, 0.5rem);
+  margin-top: 0.25rem;
+}
+
+/* ---------- Result ---------- */
+.btools-result {
+  margin-top: var(--sp-2, 0.5rem);
+  padding: var(--sp-4, 1rem);
+  background: var(--bg-surface-2, var(--surface-muted));
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  min-width: 0;
+  overflow: hidden;
+  animation: btools-fade-in 0.2s ease;
+}
+
+@keyframes btools-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.btools-result__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3, 0.75rem);
+  padding: 0.4rem 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: var(--fs-sm, 13px);
+  flex-wrap: wrap;
+}
+
+.btools-result__row:last-of-type {
+  border-bottom: none;
+}
+
+.btools-result__label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.btools-result__value {
+  font-family: var(--font-mono, "Noto Sans", monospace);
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+.btools-result__row--accent {
+  padding: 0.6rem 0.75rem;
+  margin-top: 0.3rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.btools-result__row--accent .btools-result__value {
+  font-size: var(--fs-md, 1rem);
+  color: var(--accent-bright, var(--accent));
+}
+
+.btools-result__note {
+  margin: 0.6rem 0 0;
+  font-size: var(--fs-xs, 12px);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ---------- Error ---------- */
+.btools-error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 0.5rem);
+  padding: 0.65rem 0.85rem;
+  background: var(--danger-soft, rgba(240, 120, 120, 0.14));
+  border: 1px solid var(--danger, #f07878);
+  border-radius: var(--radius-sm, 6px);
+  color: var(--danger, #f07878);
+  font-size: var(--fs-sm, 13px);
+  font-weight: 500;
+}
+
+.btools-error__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ---------- Broker comparison ---------- */
+.btools-brokers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3, 0.75rem);
+  min-width: 0;
+}
+
+.btools-broker {
+  padding: var(--sp-3, 0.75rem);
+  background: var(--bg-surface-2, var(--surface-muted));
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 8px);
+  min-width: 0;
+}
+
+.btools-broker__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 0.5rem);
+  margin-bottom: var(--sp-2, 0.5rem);
+}
+
+.btools-broker__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-sans, sans-serif) !important;
+  font-weight: 600;
+}
+
+.btools-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.btools-remove:hover {
+  background: var(--danger);
+  color: #fff;
+  transform: scale(1.08);
+}
+
+/* ---------- Compare result rows ---------- */
+.btools-cmp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2, 0.5rem);
+}
+
+.btools-cmp__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-3, 0.75rem);
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-surface, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--fs-sm, 13px);
+  flex-wrap: wrap;
+}
+
+.btools-cmp__row--best {
+  border-color: var(--success, #2bc1a9);
+  background: var(--success-soft, rgba(43, 193, 169, 0.14));
+}
+
+.btools-cmp__row--bad {
+  border-color: var(--border);
+  opacity: 0.75;
+}
+
+.btools-cmp__name {
+  font-weight: 600;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.btools-cmp__cost {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ---------- Formula disclosure ---------- */
+.btools-formula {
+  margin-top: auto;
+  padding-top: var(--sp-2, 0.5rem);
+  font-size: var(--fs-xs, 12px);
+  border-top: 1px dashed var(--border);
+}
+
+.btools-formula summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 0.3rem 0;
+  list-style: none;
+  user-select: none;
+}
+
+.btools-formula summary::-webkit-details-marker {
+  display: none;
+}
+
+.btools-formula summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+
+.btools-formula[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.btools-formula code {
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-surface-2, var(--surface-muted));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-xs, 12px);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.btools-formula code + code {
+  margin-top: 0.35rem;
+}
+
+/* ---------- Notice banner ---------- */
+.btools-notice {
+  margin-top: var(--sp-5, 1.5rem);
+}
+
+/* ============================================================
+   Responsive — จอแคบ → 1 คอลัมน์, ฟอร์ม stack
+   ============================================================ */
+@media (max-width: 860px) {
+  .btools-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .btools-card {
+    padding: var(--sp-4, 1rem);
+  }
+
+  .btools-form,
+  .btools-form--inline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* ฟอร์ม inline บนมือถือ → 2 คอลัมน์ เพื่อประหยัดพื้นที่ แต่ยังไม่ overflow */
+  .btools-form--inline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .btools-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .btools-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btools-result__row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+  }
+
+  .btools-result__value {
+    text-align: left;
+  }
+
+  .btools-cmp__row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .btools-cmp__cost {
+    text-align: left;
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  /* จอเล็กมาก → ทุกอย่าง 1 คอลัมน์ */
+  .btools-form--inline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .btools-card__title {
+    font-size: var(--fs-md, 1rem);
+  }
+}
+
+/* ---------- Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .btools-result {
+    animation: none;
+  }
+  .btools-remove,
+  .btools-field__input,
+  .btools-formula summary::before {
+    transition: none;
+  }
+}
+
+/* ---------- Print ---------- */
+@media print {
+  .btools-actions,
+  .btools-broker__head .btools-remove,
+  .navbar,
+  .footer,
+  .ticker-tape {
+    display: none !important;
+  }
+  .btools-card {
+    break-inside: avoid;
+    border: 1px solid #ccc;
+  }
+  .btools-result {
+    border: 1px solid #ccc;
+  }
+}

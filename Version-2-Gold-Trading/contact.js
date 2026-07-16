@@ -157,12 +157,18 @@
         return;
       }
 
-      // สาธิต: ยังไม่ส่งจริง
+      const subject = `ติดต่อ TraderToolsTH จาก ${name}`;
+      const body = `ชื่อ: ${name}\nอีเมลติดต่อกลับ: ${email}\n\n${message}`;
+      const recipient = (TT.site && TT.site.email) || "support@tradertoolsth.com";
+      const mailto = `mailto:${recipient}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
       msg.innerHTML = `<div class="alert" style="border-color:var(--border-accent);background:var(--accent-soft)"><span class="alert__icon text-accent">${TT.icon(
-        "check",
+        "mail",
         16
-      )}</span><div>ส่งข้อความสำเร็จ (โหมดสาธิต) — ทีมงานจะติดต่อกลับผ่านช่องทางอื่น</div></div>`;
-      form.reset();
+      )}</span><div>กำลังเปิดแอปอีเมลของคุณ กรุณาตรวจสอบและกดส่งอีกครั้ง หากแอปไม่เปิดให้ส่งตรงไปที่ <a href="mailto:${h.esc(
+        recipient
+      )}">${h.esc(recipient)}</a></div></div>`;
+      window.location.href = mailto;
     });
   }
 

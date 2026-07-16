@@ -181,6 +181,12 @@
   // ---------- load ----------
   async function loadAllAndRender() {
     await Promise.all([loadStatus(), loadCounts(), loadNews()]);
+    // คำขอทั้งสามทำงานพร้อมกันได้ และอาจมีคำขอหนึ่งพบว่า session หมดอายุ
+    // ห้ามวาด dashboard ทับหน้า login หลัง sessionExpired() ทำงานแล้ว
+    if (!state.authenticated) {
+      renderLogin();
+      return;
+    }
     renderDashboard();
   }
 
@@ -233,14 +239,22 @@
         <div class="container container--narrow">
           <div class="admin-head">
             <div class="admin-head__title">Admin Dashboard</div>
-            <button class="btn btn--ghost btn--sm" type="button" id="adminLogoutBtn">
-              ออกจากระบบ
-            </button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="btn btn--teal btn--sm" type="button" id="adminContentBtn">
+                จัดการเนื้อหาเว็บไซต์
+              </button>
+              <button class="btn btn--ghost btn--sm" type="button" id="adminLogoutBtn">
+                ออกจากระบบ
+              </button>
+            </div>
           </div>
 
           ${state.notice ? renderNotice(state.notice) : ""}
 
           ${renderReviewerField()}
+
+          <h2 class="admin-section-title">จัดการเนื้อหาเว็บไซต์</h2>
+          ${renderContentSection()}
 
           <h2 class="admin-section-title">จัดการข่าว</h2>
           ${renderNewsSection()}
@@ -270,6 +284,28 @@
         <p class="text-muted" style="font-size:var(--fs-xs);margin:4px 0 0">
           ใช้สำหรับบันทึก audit trail ในการ review / approve / rollback
         </p>
+      </div>
+    `;
+  }
+
+  // ---------- Content Management section (Phase 14) ----------
+  // เปิด Content Manager overlay (admin-content.js) — จัดการ EA, Articles, FAQ, Brokers
+  // ใช้ cookie session เดียวกับ Admin เดิม ห้ามเก็บ token ฝั่ง frontend
+  function renderContentSection() {
+    const enabled = typeof TT !== "undefined" && TT.adminContent && typeof TT.adminContent.open === "function";
+    return `
+      <div class="admin-content-entry">
+        <div class="admin-content-entry__info">
+          <div class="admin-content-entry__title">EA Products · บทความ · FAQ · รีวิวโบรกเกอร์</div>
+          <p class="text-muted" style="font-size:var(--fs-xs);margin:4px 0 0">
+            สร้าง/แก้ไข/เผยแพร่เนื้อหาเว็บไซต์ — ใช้ session เดียวกับ Admin
+            (cookie HttpOnly, ไม่เก็บ token ใน frontend)
+          </p>
+        </div>
+        <button class="btn btn--teal" type="button" id="adminContentBtn"
+                ${enabled ? "" : "disabled title=\"admin-content.js ยังไม่พร้อม\""}>
+          ${TT.icon ? TT.icon("ea", 16) : ""} จัดการเนื้อหาเว็บไซต์
+        </button>
       </div>
     `;
   }
@@ -560,6 +596,8 @@
       });
     }
 
+    bindContentButton();
+
     // reviewer field
     const reviewerInput = document.getElementById("reviewerInput");
     if (reviewerInput) {
@@ -583,6 +621,37 @@
     const clearEmgBtn = document.getElementById("adminClearEmgBtn");
     if (clearEmgBtn) clearEmgBtn.addEventListener("click", () => void apActionWithRefresh("POST", "/clear-emergency", "ล้าง Emergency Stop แล้ว"));
   }
+
+  // ---------- Content Management button (Phase 14) ----------
+  // เปิด content manager จาก dashboard — ใช้ module แยก (admin-content.js)
+  // สอดคล้องกับ admin.js เดิม: ใช้ session เดียวกัน (cookie HttpOnly)
+  function bindContentButton() {
+    const btn = document.getElementById("adminContentBtn");
+    if (btn && window.TT && TT.adminContent) {
+      btn.addEventListener("click", () => {
+        TT.adminContent.open();
+      });
+    }
+  }
+  // เมื่อ content module แจ้ง session หมดอายุ → กลับไป login
+  document.addEventListener("tt:admin-session-expired", () => {
+    state.authenticated = false;
+    stopAutoRefresh();
+    state.notice = { type: "info", msg: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };
+    renderLogin();
+  });
+
+  // เมื่อ content manager ปิด → re-render dashboard เพื่อ refresh สถานะล่าสุด
+  // (counts/รายการอาจเปลี่ยนจากการ CRUD ใน content manager)
+  document.addEventListener("tt:admin-content-close", () => {
+    if (state.authenticated) {
+      void (async () => {
+        await loadStatus();
+        await loadCounts();
+        renderDashboard();
+      })();
+    }
+  });
 
   function bindNewsControls() {
     const fetchBtn = document.getElementById("adminFetchBtn");

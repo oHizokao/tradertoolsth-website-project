@@ -5,6 +5,9 @@ import { extname, resolve, sep } from "node:path";
 import { toPublicNews, publicCategory } from "./publicNews.js";
 import { createCalendarApiHandler } from "./calendarApi.js";
 import { createMarketApiHandler } from "./marketApi.js";
+import { createContentApiHandler } from "./contentApi.js";
+import { createForumApiHandler } from "./forumApi.js";
+import { createEaSubmissionApiHandler } from "../ea/eaSubmissionApi.js";
 import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
 import { validateRewritten } from "../ai/validator.js";
 import { makeOwnedPlaceholder } from "../image/imagePipeline.js";
@@ -21,7 +24,25 @@ const MIME = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  // upload file types (served via controlled handler, not static dir)
+  ".ex4": "application/octet-stream",
+  ".ex5": "application/octet-stream",
+  ".set": "text/plain; charset=utf-8",
+  ".zip": "application/zip",
 };
+
+// upload file types that may be served publicly (read-only, path-traversal safe)
+const UPLOAD_SERVE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".svg",
+  ".ex4",
+  ".ex5",
+  ".set",
+  ".zip",
+]);
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -138,11 +159,15 @@ function isOriginAllowed(req, allowedOrigins = []) {
 }
 
 /** สร้าง Set-Cookie value สำหรับ admin_session */
+// NOTE: Phase 16 — เปลี่ยน Path จาก /api/admin/auto-pilot → /api/admin
+// เพื่อให้ cookie ครอบคลุม Content API (/api/admin/content/*) และ EA Submission
+// admin (/api/admin/ea-submissions/*) ด้วย ยังคง HttpOnly + SameSite=Strict
+// CSRF/Origin protection ยังตรวจทุก state-changing request อยู่ (ไม่พึ่ง cookie เดียว)
 function buildAdminCookie(token, { secure, maxAge = 28800 }) {
   const parts = [
     `${ADMIN_COOKIE_NAME}=${token}`,
     "HttpOnly",
-    "Path=/api/admin/auto-pilot",
+    "Path=/api/admin",
     `Max-Age=${maxAge}`,
     "SameSite=Strict",
   ];
@@ -152,7 +177,7 @@ function buildAdminCookie(token, { secure, maxAge = 28800 }) {
 
 /** สร้าง Set-Cookie สำหรับ clear cookie (logout) */
 function buildClearAdminCookie({ secure }) {
-  const parts = [`${ADMIN_COOKIE_NAME}=`, "HttpOnly", "Path=/api/admin/auto-pilot", "Max-Age=0", "SameSite=Strict"];
+  const parts = [`${ADMIN_COOKIE_NAME}=`, "HttpOnly", "Path=/api/admin", "Max-Age=0", "SameSite=Strict"];
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
@@ -265,6 +290,46 @@ export function createRequestHandler(options) {
       })
     : null;
 
+  // Phase 14 — Content Management handler (public read + admin CRUD + uploads)
+  // สร้างครั้งเดียว ถ้า contentRepos และ uploadService ถูกส่งเข้ามา
+  const contentHandler =
+    options.contentRepos && options.uploadService
+      ? createContentApiHandler({
+          repos: options.contentRepos,
+          uploadService: options.uploadService,
+          json,
+          isAuthorizedAny,
+          isOriginAllowed,
+        })
+      : null;
+
+  // Phase 15 — Community Forum handler (public read + author CRUD + reports)
+  // แยกจาก content/news/auto-pilot โดยสมบูรณ์ — ใช้ identity เป็น guest anon token
+  // สร้างครั้งเดียว ถ้า forumService ถูกส่งเข้ามา
+  const forumHandler = options.forumService
+    ? createForumApiHandler({
+        forumService: options.forumService,
+        json,
+        isOriginAllowed,
+      })
+    : null;
+
+  // Phase 16 — Public EA Submission handler (public submit + admin review)
+  // แยกจาก admin Content CRUD อย่างชัดเจน — public endpoint ใช้ IP rate limit
+  // admin endpoints (list/reject/migrate) ใช้ cookie path=/api/admin
+  const eaSubmissionHandler =
+    options.eaSubmissionService && options.submissionRepo
+      ? createEaSubmissionApiHandler({
+          service: options.eaSubmissionService,
+          submissionRepo: options.submissionRepo,
+          contentRepos: options.contentRepos,
+          uploadService: options.uploadService,
+          json,
+          isAuthorizedAny,
+          isOriginAllowed,
+        })
+      : null;
+
   return async function requestHandler(req, res) {
     try {
       const url = new URL(req.url || "/", "http://localhost");
@@ -288,6 +353,75 @@ export function createRequestHandler(options) {
         if (handled === false && (pathname === "/api/market-ticker" || pathname === "/api/market-ticker/status")) {
           return json(res, 405, { error: "method_not_allowed" });
         }
+      }
+
+      // ===== Phase 14 — Content Management (public read + admin CRUD + uploads) =====
+      // ต้องอยู่ก่อน /api/admin/* blocks เพื่อให้ /api/admin/content/* และ
+      // /api/content/* ถูกจัดการโดย content handler
+      if (contentHandler) {
+        const handled = await contentHandler(req, res, url, options);
+        if (handled) return;
+      }
+
+      // ===== Phase 14 — Upload file serving (read-only, path-traversal safe) =====
+      // serve ไฟล์ที่ admin อัปโหลด (รูปปก, EA files) ผ่าน controlled handler
+      // ไม่ expose dir แบบ writable — มีเฉพาะ GET + ตรวจ path traversal
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/uploads/") &&
+        options.uploadService
+      ) {
+        const relPath = decodeURIComponent(pathname.slice("/uploads/".length));
+        const absPath = options.uploadService.resolvePublicPath(relPath);
+        if (!absPath) {
+          return json(res, 400, { error: "invalid_path" });
+        }
+        try {
+          const info = await stat(absPath);
+          if (!info.isFile()) return json(res, 404, { error: "not_found" });
+          const ext = extname(absPath).toLowerCase();
+          if (!UPLOAD_SERVE_EXTENSIONS.has(ext)) {
+            return json(res, 403, { error: "file_type_not_servable" });
+          }
+          const data = await readFile(absPath);
+          res.writeHead(200, {
+            "content-type": MIME[ext] || "application/octet-stream",
+            "content-length": data.length,
+            "cache-control": "public, max-age=3600",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(data);
+          return;
+        } catch {
+          return json(res, 404, { error: "not_found" });
+        }
+      }
+
+      // ===== Phase 15 — Community Forum =====
+      // ----------------------------------------------------------------
+      // 🔀 MERGE POINT (ต้องตรวจสอบเมื่อ merge): forum handler อยู่ที่นี่
+      //   - อยู่หลัง content/news/calendar/market blocks
+      //   - อยู่ก่อน /api/health, /api/news, /api/admin/* blocks
+      //   - ไม่ขัดแย้งกับ route อื่นเพราะ prefix ด้วย /api/forum/* เท่านั้น
+      //   - ถ้า forum disabled ใน config → forumService จะไม่ถูกส่งเข้ามา
+      //     (ดู src/server.js) และ block นี้จะถูกข้ามไป
+      // ----------------------------------------------------------------
+      if (forumHandler) {
+        const handled = await forumHandler(req, res, url, options);
+        if (handled) return;
+      }
+
+      // ===== Phase 16 — Public EA Submissions =====
+      // ----------------------------------------------------------------
+      // 🔀 MERGE POINT: ea submission handler อยู่ที่นี่
+      //   - POST /api/ea/submissions (public — rate limited + CSRF)
+      //   - GET/POST /api/admin/ea-submissions/* (admin — auth + cookie)
+      //   - อยู่ก่อน /api/admin/* generic block เพื่อให้ /api/admin/ea-submissions/*
+      //     ถูกจัดการโดย handler นี้ (admin auth check ทำใน handler เอง)
+      // ----------------------------------------------------------------
+      if (eaSubmissionHandler) {
+        const handled = await eaSubmissionHandler(req, res, url, options);
+        if (handled) return;
       }
 
       if (req.method === "GET" && pathname === "/api/health") {

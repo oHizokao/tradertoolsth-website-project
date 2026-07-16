@@ -63,25 +63,18 @@
   function signalPanel() {
     return `<article class="v2-panel v2-signal-panel">
       <header class="v2-panel-head">
-        <h2>SIGNAL <span>ล่าสุด</span></h2>
-        <span class="v2-live"><i></i> อัปเดตเมื่อ 09:45 น.</span>
+        <h2>ระบบ <span>SIGNAL</span></h2>
+        <span class="v2-live">ยังไม่เปิดใช้งาน</span>
       </header>
       <div class="v2-signal-symbol">
-        <div class="v2-flags"><span class="v2-flag-us"></span><span class="v2-flag-jp"></span></div>
+        <div class="v2-tool-icon v2-tool-icon--teal">${TT.icon("signal", 28)}</div>
         <div>
-          <div class="v2-symbol-line"><strong>USDJPY</strong><span class="v2-buy">BUY</span></div>
-          <small>แบบโมเมนตัม</small>
+          <div class="v2-symbol-line"><strong>รอเชื่อมต่อ EA/MT5</strong></div>
+          <small>ไม่มีการแสดงข้อมูลจำลองเป็นสัญญาณจริง</small>
         </div>
       </div>
-      <div class="v2-signal-trend"><span>แนวโน้ม</span><strong>แนวโน้มขาขึ้น</strong></div>
-      <div class="v2-signal-stats">
-        <div><span>ราคาเข้า</span><strong>155.32</strong></div>
-        <div><span>เป้าหมาย</span><strong>156.80</strong></div>
-        <div><span>จุดตัดขาดทุน</span><strong>154.60</strong></div>
-        <div><span>ความเชื่อมั่น</span><strong class="v2-stars">★★★★<b>☆</b></strong></div>
-      </div>
-      ${sparkline()}
-      <a href="signal.html" class="v2-panel-link">ดูสัญญาณทั้งหมด <span>→</span></a>
+      <div class="alert alert--warn"><div>พื้นที่นี้จะแสดง Entry, Stop Loss และ Take Profit เมื่อมีแหล่งข้อมูลจริงที่ตรวจสอบได้</div></div>
+      <a href="signal.html" class="v2-panel-link">ดูสถานะระบบ <span>→</span></a>
     </article>`;
   }
 
@@ -108,16 +101,16 @@
 
   function calendarPanel() {
     const rows = [
-      ["08:30", "us", "USD", "Non-Farm Payrolls", 3, "190K", "175K"],
-      ["08:30", "us", "USD", "Average Hourly Earnings", 2, "0.3%", "0.4%"],
-      ["10:00", "us", "USD", "ISM Services PMI", 2, "52.0", "49.4"],
-      ["14:00", "gb", "GBP", "BoE Governor Speech", 1, "–", "–"],
-      ["19:30", "us", "USD", "FOMC Member Speech", 2, "–", "–"],
+      ["08:30", "USD", "Non-Farm Payrolls", 3, "190K", "175K"],
+      ["08:30", "USD", "Average Hourly Earnings", 2, "0.3%", "0.4%"],
+      ["10:00", "USD", "ISM Services PMI", 2, "52.0", "49.4"],
+      ["14:00", "GBP", "BoE Governor Speech", 1, "–", "–"],
+      ["19:30", "USD", "FOMC Member Speech", 2, "–", "–"],
     ];
     return `<article class="v2-panel v2-calendar-panel">
       <header class="v2-panel-head"><h2>ปฏิทินเศรษฐกิจ</h2><a href="calendar.html">ดูทั้งหมด →</a></header>
       <div class="v2-calendar-head"><span>เวลา</span><span>เหตุการณ์</span><span>ความสำคัญ</span><span>คาดการณ์</span><span>ก่อนหน้า</span></div>
-      <div class="v2-calendar-body" id="homeCalendarList">${rows.map((row) => `<div class="v2-calendar-row"><span>${row[0]}</span><span class="v2-event"><b class="v2-mini-flag v2-mini-flag--${row[1]}"></b><small>${row[2]}</small>${row[3]}</span><span class="v2-impact" aria-label="ความสำคัญ ${row[4]} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < row[4] ? "is-on" : ""}"></i>`).join("")}</span><span>${row[5]}</span><span>${row[6]}</span></div>`).join("")}</div>
+      <div class="v2-calendar-body" id="homeCalendarList">${rows.map((row) => `<div class="v2-calendar-row"><span>${row[0]}</span><span class="v2-event"><img class="v2-mini-flag" src="${currencyFlagSrc(row[1])}" alt="ธง ${row[1]}" width="24" height="16"><small>${row[1]}</small>${row[2]}</span><span class="v2-impact" aria-label="ความสำคัญ ${row[3]} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < row[3] ? "is-on" : ""}"></i>`).join("")}</span><span>${row[4]}</span><span>${row[5]}</span></div>`).join("")}</div>
       <footer class="v2-calendar-foot" id="homeCalendarStatus"><span>กำลังโหลดปฏิทินล่าสุด…</span><span>เชื่อมต่อข้อมูลจริง <i></i></span></footer>
     </article>`;
   }
@@ -135,13 +128,10 @@
     return impact === "high" ? 3 : impact === "medium" ? 2 : 1;
   }
 
-  function flagClass(currency) {
-    const code = String(currency || "").toLowerCase();
-    if (code === "usd") return "us";
-    if (code === "gbp") return "gb";
-    if (code === "jpy") return "jp";
-    if (code === "eur") return "eu";
-    return "global";
+  function currencyFlagSrc(currency) {
+    return TT.cards && typeof TT.cards.currencyFlagSrc === "function"
+      ? TT.cards.currencyFlagSrc(currency)
+      : "assets/flags/global.svg";
   }
 
   async function hydrateLiveNews() {
@@ -173,7 +163,7 @@
         const level = impactLevel(item.impact);
         const time = String(item.scheduledAtBangkok || "").slice(11, 16) || "—";
         const currency = String(item.currency || item.country || "—").toUpperCase();
-        return `<a class="v2-calendar-row" href="calendar.html#${encodeURIComponent(item.id || "upcoming")}"><span>${h.esc(time)}</span><span class="v2-event"><b class="v2-mini-flag v2-mini-flag--${flagClass(currency)}"></b><small>${h.esc(currency)}</small>${h.esc(h.truncate(item.eventName || "", 28))}</span><span class="v2-impact" aria-label="ความสำคัญ ${level} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < level ? "is-on" : ""}"></i>`).join("")}</span><span>${h.esc(item.forecast || "—")}</span><span>${h.esc(item.previous || "—")}</span></a>`;
+        return `<a class="v2-calendar-row" href="calendar.html#${encodeURIComponent(item.id || "upcoming")}"><span>${h.esc(time)}</span><span class="v2-event"><img class="v2-mini-flag" src="${currencyFlagSrc(currency)}" alt="ธง ${h.esc(currency)}" width="24" height="16" loading="lazy"><small>${h.esc(currency)}</small>${h.esc(h.truncate(item.eventName || "", 28))}</span><span class="v2-impact" aria-label="ความสำคัญ ${level} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < level ? "is-on" : ""}"></i>`).join("")}</span><span>${h.esc(item.forecast || "—")}</span><span>${h.esc(item.previous || "—")}</span></a>`;
       }).join("");
     }
     if (status) {
@@ -186,7 +176,7 @@
     const tools = [
       { icon: "calculator", tone: "teal", name: "Position Size Calculator", desc: "คำนวณขนาดการเทรดที่เหมาะสมตามความเสี่ยงของคุณ", href: "broker-tools.html#lot-size" },
       { icon: "shield", tone: "gold", name: "Margin Calculator", desc: "คำนวณมาร์จินและเปอร์เซ็นต์การใช้มาร์จิน", href: "broker-tools.html#margin" },
-      { icon: "chart", tone: "blue", name: "Pip Value Calculator", desc: "คำนวณมูลค่าของ Pip ในแต่ละคู่เงินได้อย่างแม่นยำ", href: "broker-tools.html#swap" },
+      { icon: "chart", tone: "blue", name: "Swap / Rollover", desc: "ประมาณการค่า Swap สำหรับสถานะที่ถือข้ามคืน", href: "broker-tools.html#swap" },
     ];
     return `<article class="v2-panel v2-tools-panel">
       <header class="v2-panel-head"><h2>เครื่องมือสำหรับโบรกเกอร์</h2><a href="broker-tools.html">ดูทั้งหมด →</a></header>
@@ -219,7 +209,7 @@
         icon: "calculator",
         tone: "blue",
         title: "เครื่องมือโบรกเกอร์",
-        desc: "คำนวณ Lot Size, Margin, Swap และเปรียบเทียบต้นทุนการเทรดระหว่างโบรกเกอร์อย่างแม่นยำ",
+        desc: "คำนวณ Lot Size, Margin, Swap และเปรียบเทียบต้นทุนตามสูตรมาตรฐาน",
         cta: "ใช้เครื่องมือ",
         href: "broker-tools.html",
       },
@@ -355,7 +345,7 @@
 
   function featureStrip() {
     const features = [
-      ["target", "teal", "สัญญาณคุณภาพ", "อัปเดตเรียลไทม์ แม่นยำ", "โดยนักวิเคราะห์มืออาชีพ"],
+      ["target", "teal", "สถานะตรงไปตรงมา", "ไม่แสดงสัญญาณจำลอง", "เมื่อระบบจริงยังไม่พร้อม"],
       ["clock", "gold", "เครื่องมือครบครัน", "ช่วยให้คุณวางแผนและจัดการ", "การเทรดได้อย่างมีประสิทธิภาพ"],
       ["news", "blue", "ข่าวสารทันเหตุการณ์", "ติดตามข่าวสำคัญที่ส่งผล", "ต่อตลาดก่อนใคร"],
       ["shield", "teal", "ปลอดภัย เชื่อถือได้", "ข้อมูลจากแหล่งที่เชื่อถือได้", "100%"],
@@ -370,9 +360,9 @@
         <div class="v2-shell v2-hero-grid">
           <div class="v2-hero-copy">
             <h1>เทรดด้วยข้อมูล<br><span>ได้เปรียบทุกจังหวะตลาด</span></h1>
-            <p>เครื่องมืออัจฉริยะ สัญญาณคุณภาพ และข่าวสารที่สำคัญ<br>ช่วยให้คุณเทรดอย่างมั่นใจในทุกสภาวะตลาด</p>
-            <div class="v2-actions"><a href="signal.html" class="v2-btn v2-btn--primary">เริ่มใช้งานฟรี <span>→</span></a><a href="knowledge.html" class="v2-btn v2-btn--outline">ดูเครื่องมือทั้งหมด</a></div>
-            <div class="v2-proof"><span>${TT.icon("shield", 25)} <b>เชื่อถือได้</b><small>ใช้งานโดยเทรดเดอร์กว่า 50,000+ คน</small></span><span>${TT.icon("star", 25)} <b>อัปเดตเรียลไทม์</b><small>ข้อมูลไว แม่นยำ</small></span></div>
+            <p>เครื่องมือคำนวณ EA Hub ชุมชน และข้อมูลตลาดจากระบบหลังบ้าน<br>พร้อมสถานะที่บอกตามจริงเมื่อแหล่งข้อมูลยังไม่เชื่อมต่อ</p>
+            <div class="v2-actions"><a href="broker-tools.html" class="v2-btn v2-btn--primary">ลองใช้เครื่องมือ <span>→</span></a><a href="ea.html" class="v2-btn v2-btn--outline">ดู EA Hub</a></div>
+            <div class="v2-proof"><span>${TT.icon("shield", 25)} <b>ข้อมูลตรวจสอบได้</b><small>แสดงสถานะจริง ไม่ใช้ผลสำเร็จจำลอง</small></span><span>${TT.icon("star", 25)} <b>เชื่อมต่อหลังบ้าน</b><small>EA, Forum และเนื้อหาจัดการผ่าน API</small></span></div>
           </div>
           <div class="v2-chart-stage">${candleChart()}</div>
           ${signalPanel()}

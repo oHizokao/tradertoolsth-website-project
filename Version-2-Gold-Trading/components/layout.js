@@ -1,6 +1,6 @@
 /* ============================================================
    Layout Components — Navbar + Footer + Ticker (v3)
-   Navy header with dropdown, login/signup; navy footer
+   Navy header with dropdown and contact/admin links; navy footer
    ============================================================ */
 
 window.TT = window.TT || {};
@@ -51,7 +51,9 @@ TT.layout = (function () {
       <a href="news.html" class="${activeKey === "news" ? "is-active" : ""}" data-nav="news">ข่าวสาร</a>
       <a href="knowledge.html" class="${activeKey === "knowledge" ? "is-active" : ""}" data-nav="knowledge">บทวิเคราะห์</a>
       <a href="brokers.html" class="${activeKey === "brokers" ? "is-active" : ""}" data-nav="brokers">โบรกเกอร์</a>
-      <a href="forum.html" class="${activeKey === "forum" ? "is-active" : ""}" data-nav="forum">ฟอรัม</a>`;
+      <a href="forum.html" class="${activeKey === "forum" ? "is-active" : ""}" data-nav="forum">ฟอรัม</a>
+      <a href="contact.html" class="nav-mobile-only">ติดต่อเรา</a>
+      <a href="admin.html" class="nav-mobile-only">หลังบ้าน</a>`;
 
     return `<header class="navbar" id="navbar">
       <div class="container navbar__inner">
@@ -72,8 +74,8 @@ TT.layout = (function () {
           <button class="nav-icon-btn nav-theme-btn" aria-label="เปลี่ยนธีม">☾</button>
           <button class="nav-lang" aria-label="เปลี่ยนภาษา">TH</button>
           <span class="nav-divider"></span>
-          <a href="contact.html" class="btn btn--ghost-light btn--sm">เข้าสู่ระบบ</a>
-          <a href="contact.html" class="btn btn--teal btn--sm">สมัครสมาชิก</a>
+          <a href="contact.html" class="btn btn--ghost-light btn--sm">ติดต่อเรา</a>
+          <a href="admin.html" class="btn btn--teal btn--sm">หลังบ้าน</a>
           <button class="nav-toggle" id="navToggle" aria-label="เปิด/ปิดเมนู" aria-expanded="false" aria-controls="navLinks">
             <span></span>
           </button>

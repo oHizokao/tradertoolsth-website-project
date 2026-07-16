@@ -95,6 +95,9 @@ export const config = {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+    // ปิดไว้เป็นค่าเริ่มต้น เพื่อไม่ให้ผู้ใช้ปลอม X-Forwarded-For ข้าม rate limit
+    // เปิดเฉพาะเมื่อรันหลัง reverse proxy ที่ควบคุมเองเท่านั้น
+    trustProxy: bool("TRUST_PROXY", false),
   },
   // Phase 9 — Auto Pilot: ค่าเริ่มต้นปิดทุกอย่าง (safety)
   // ต้องมี env allowed AND database enabled ทั้งคู่จึงจะรันจริง
@@ -148,6 +151,46 @@ export const config = {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+  },
+  // Phase 15 — Community Forum (แยกจาก Content Management Phase 14)
+  // กฎ QC:
+  // - guest identity ปลอดภัย (anon token) ย้ายไป account จริงในอนาคตได้
+  // - rate limit การโพสต์ (default: 1 โพสต์ / 30 วินาที / author)
+  // - upload: whitelist mime + extension + max size; ห้าม executable
+  forum: {
+    enabled: bool("FORUM_ENABLED", true),
+    // rate limit: จำนวนวินาทีขั้นต่ำระหว่างโพสต์ต่อ author (create topic + reply)
+    rateLimitSeconds: num("FORUM_RATE_LIMIT_SECONDS", 30),
+    rateLimitBurst: num("FORUM_RATE_LIMIT_BURST", 3), // อนุญาต burst แรก
+    // upload
+    uploadDir: process.env.FORUM_UPLOAD_DIR || "data/forum",
+    uploadMaxBytes: num("FORUM_UPLOAD_MAX_BYTES", 5 * 1024 * 1024), // 5 MB
+    uploadMaxFiles: num("FORUM_UPLOAD_MAX_FILES", 4),
+    // content limits
+    titleMaxLength: num("FORUM_TITLE_MAX_LENGTH", 200),
+    bodyMaxLength: num("FORUM_BODY_MAX_LENGTH", 10000),
+    bodyMinLength: num("FORUM_BODY_MIN_LENGTH", 1),
+    nameMaxLength: num("FORUM_NAME_MAX_LENGTH", 40),
+    reasonMaxLength: num("FORUM_REASON_MAX_LENGTH", 500),
+  },
+  // Phase 16 — Public EA Submissions
+  // กฎ QC:
+  // - public submit ใช้ IP เป็น rate limit key (ไม่ใช่ anon token)
+  // - บังคับ price=0 (submission เป็น free เท่านั้น — admin กำหนดราคาทีหลังที่ ea_products)
+  // - บังคับ status=pending_review (ห้าม public กำหนดสถานะเอง)
+  // - upload ผ่าน uploadService เดิม (มี whitelist + magic bytes + path traversal)
+  // - admin review/migrate ใช้ cookie path=/api/admin
+  eaSubmission: {
+    enabled: bool("EA_SUBMISSION_ENABLED", true),
+    // 1 ครั้งต่อ 10 นาที และไม่เกิน 3 ครั้งต่อวันต่อ IP
+    cooldownSeconds: num(
+      "EA_SUBMISSION_COOLDOWN_SECONDS",
+      num("EA_SUBMISSION_RATE_LIMIT_SECONDS", 600)
+    ),
+    dailyLimit: num("EA_SUBMISSION_DAILY_LIMIT", 3),
+    nameMaxLength: num("EA_SUBMISSION_NAME_MAX_LENGTH", 200),
+    descriptionMaxLength: num("EA_SUBMISSION_DESCRIPTION_MAX_LENGTH", 8000),
+    versionMaxLength: num("EA_SUBMISSION_VERSION_MAX_LENGTH", 60),
   },
   log: {
     level: process.env.LOG_LEVEL || "info",

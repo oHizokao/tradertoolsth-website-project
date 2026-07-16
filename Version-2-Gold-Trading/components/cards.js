@@ -203,11 +203,12 @@ TT.cards = (function () {
     const timeCell = e.isTentative
       ? `<span class="num text-muted" title="เวลายังไม่แน่นอน">~${h.formatBangkok(iso, { timeOnly: true, prefix: "" })}</span>`
       : `<span class="num">${h.formatBangkok(iso, { timeOnly: true, prefix: "" })}</span>`;
-    // currency badge + ธงประเทศ (ใช้ emoji flag จากรหัสสกุลเงิน)
-    const flag = currencyFlag(e.currency || e.country);
-    const currencyCell = `<span class="cluster"><span aria-hidden="true">${h.esc(flag)}</span><span class="badge">${h.esc(
-      e.currency || e.country || ""
-    )}</span></span>`;
+    // currency badge + ไฟล์ภาพธงประเทศจากรหัสสกุลเงิน
+    const currency = String(e.currency || e.country || "").trim().toUpperCase();
+    const flag = currencyFlagSrc(currency);
+    const currencyCell = `<span class="cluster"><img class="currency-flag" src="${h.esc(flag)}" alt="ธง ${h.esc(
+      currency
+    )}" width="24" height="16" loading="lazy"><span class="badge">${h.esc(currency)}</span></span>`;
     // Actual: ถ้ามี ใช้สีตามทิศทาง (เทียบ forecast); ถ้าไม่มี แสดง —
     const actualCell = e.actual
       ? `<span class="num ${actualDirectionClass(e)}">${h.esc(e.actual)}</span>`
@@ -226,17 +227,16 @@ TT.cards = (function () {
     </tr>`;
   }
 
-  /** แปลงรหัสสกุลเงิน (USD/EUR/...) → emoji ธงประเทศ (ใช้ regional indicator) */
-  function currencyFlag(currency) {
-    const COUNTRY_TO_FLAG = {
-      USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", JPY: "🇯🇵", AUD: "🇦🇺",
-      NZD: "🇳🇿", CAD: "🇨🇦", CHF: "🇨🇭", CNY: "🇨🇳", HKD: "🇭🇰",
-      SGD: "🇸🇬", KRW: "🇰🇷", INR: "🇮🇳", MXN: "🇲🇽", BRL: "🇧🇷",
-      ZAR: "🇿🇦", TRY: "🇹🇷", RUB: "🇷🇺", SEK: "🇸🇪", NOK: "🇳🇴",
-      DKK: "🇩🇰", PLN: "🇵🇱", THB: "🇹🇭", IDR: "🇮🇩", MYR: "🇲🇾",
-      PHP: "🇵🇭", VND: "🇻🇳", TWD: "🇹🇼", SAR: "🇸🇦", AED: "🇦🇪",
+  /** แปลงรหัสสกุลเงิน (USD/EUR/...) → ไฟล์ภาพธงใน assets/flags */
+  function currencyFlagSrc(currency) {
+    const code = String(currency || "").trim().toUpperCase();
+    const CURRENCY_TO_FILE = {
+      USD: "us", EUR: "eu", GBP: "gb", JPY: "jp", AUD: "au",
+      NZD: "nz", CAD: "ca", CHF: "ch",
+      US: "us", USA: "us", GB: "gb", UK: "gb", EU: "eu",
+      JP: "jp", AU: "au", NZ: "nz", CA: "ca", CH: "ch",
     };
-    return COUNTRY_TO_FLAG[currency] || "🏳️";
+    return `assets/flags/${CURRENCY_TO_FILE[code] || "global"}.svg`;
   }
 
   /** กำหนดสี Actual: actual > forecast → text-buy, < → text-sell, เท่ากัน/เทียบไม่ได้ → ปกติ */
@@ -398,6 +398,7 @@ TT.cards = (function () {
     newsCard,
     brokerCard,
     calendarRow,
+    currencyFlagSrc,
     knowledgeCard,
     eaCard,
   };
