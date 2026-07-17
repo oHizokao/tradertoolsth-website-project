@@ -103,7 +103,9 @@
       ${isMarket ? marketplaceWarning() : ""}
 
       <div class="forum-detail-head">
-        <span class="forum-cat-pill">${h.esc(t.category ? t.category.name : t.categorySlug)}</span>
+        <a class="forum-cat-pill forum-cat-pill--link"
+           href="forum-category.html?category=${encodeURIComponent(t.categorySlug || (t.category && t.category.slug) || "")}"
+           aria-label="ไปยังหมวด">${h.esc(t.category ? t.category.name : t.categorySlug)}</a>
         <h1 class="forum-detail-title" id="topicTitle"></h1>
         <div class="forum-detail-meta">
           <span>👤 <strong id="topicAuthor"></strong></span>

@@ -20,7 +20,7 @@
 
   const state = {
     categories: [],
-    activeCategory: "", // "" = ทุกหมวด
+    activeCategory: "", // "" = ทุกหมวด (Forum หลัก)
     topics: [],
     total: 0,
     offset: 0,
@@ -28,6 +28,7 @@
     hasMore: false,
     sort: "recent",
     search: "",
+    view: "timeline", // "timeline" | "forum" — ค่าเริ่มต้น Timeline
     loading: false,
     loadingCats: false,
     error: null,
@@ -62,6 +63,10 @@
               <option value="replies">ตอบมากสุด</option>
               <option value="views">เปิดอ่านมากสุด</option>
             </select>
+            <div class="forum-view-toggle" role="group" aria-label="มุมมอง">
+              <button type="button" class="forum-view-btn is-active" data-view="timeline" aria-pressed="true">Timeline</button>
+              <button type="button" class="forum-view-btn" data-view="forum" aria-pressed="false">มุมมอง Forum</button>
+            </div>
             <button class="forum-new-btn" id="forumNewBtn" type="button">+ ตั้งกระทู้ใหม่</button>
           </div>
 
@@ -101,15 +106,38 @@
       state.topics = [];
       loadTopics();
     });
+    // view toggle — สลับมุมมองโดยไม่ยิง API ซ้ำ (reuse state.topics)
+    document.querySelectorAll(".forum-view-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.view === state.view) return;
+        state.view = btn.dataset.view;
+        const u = new URL(location.href);
+        u.searchParams.set("view", state.view);
+        history.replaceState({}, "", u);
+        updateViewToggle();
+        renderTopics();
+      });
+    });
+  }
+
+  function updateViewToggle() {
+    document.querySelectorAll(".forum-view-btn").forEach((btn) => {
+      const active = btn.dataset.view === state.view;
+      btn.classList.toggle("is-active", active);
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
   }
 
   async function init() {
     renderShell();
+    // โหลด view จาก URL (?view=timeline|forum) — default timeline
+    const v = h.query("view");
+    if (v === "forum" || v === "timeline") state.view = v;
+    updateViewToggle();
     // โหลดหมวดหมู่ + สถิติ + กระทู้พร้อมกัน
     await Promise.all([loadCategories(), loadStats()]);
-    // preload category filter จาก URL ?category=
-    const cat = h.query("category");
-    if (cat) state.activeCategory = cat;
+    // Forum หลัก = Timeline รวมทุกหมวด (state.activeCategory = "")
+    // หมายเหตุ: category card ตอนนี้ลิงก์ไป forum-category.html แล้ว (ไม่ filter ในหน้าเดิม)
     await loadTopics();
   }
 
@@ -153,7 +181,8 @@
         .map((c) => {
           const icon = iconForCategory(c.slug);
           const isMarket = c.isMarketplace;
-          return `<a class="forum-cat ${isMarket ? "forum-cat--marketplace" : ""}" href="forum.html?category=${encodeURIComponent(c.slug)}" data-cat="${h.esc(c.slug)}">
+          // category card → หน้า Category Timeline แยก (forum-category.html)
+          return `<a class="forum-cat ${isMarket ? "forum-cat--marketplace" : ""}" href="forum-category.html?category=${encodeURIComponent(c.slug)}" data-cat="${h.esc(c.slug)}">
             <div class="forum-cat__icon">${h.esc(icon)}</div>
             <div class="forum-cat__name">${h.esc(c.name)}${isMarket ? ' <span class="forum-cat__badge">Marketplace</span>' : ""}</div>
             <div class="forum-cat__desc">${h.esc(c.description)}</div>
@@ -164,22 +193,7 @@
           </a>`;
         })
         .join("");
-
-    // bind click — ใช้ pushState เพื่อ reload topics ไม่ full page reload
-    wrap.querySelectorAll(".forum-cat").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.preventDefault();
-        state.activeCategory = el.dataset.cat || "";
-        state.offset = 0;
-        state.topics = [];
-        loadTopics();
-        // update URL
-        const u = new URL(location.href);
-        if (state.activeCategory) u.searchParams.set("category", state.activeCategory);
-        else u.searchParams.delete("category");
-        history.replaceState({}, "", u);
-      });
-    });
+    // ไม่ intercept click — ให้ <a> นำทางปกติไป forum-category.html (ตาม requirement)
   }
 
   function iconForCategory(slug) {
@@ -267,12 +281,13 @@
     const wrap = document.getElementById("forumTopics");
     if (!wrap) return;
     renderMarketplaceWarning(wrap);
+    const warnHtml = wrap.querySelector(".forum-warning")?.outerHTML || "";
 
     const topics = state.topics;
     if (!topics.length) {
-      wrap.innerHTML = (wrap.querySelector(".forum-warning")?.outerHTML || "") +
+      wrap.innerHTML = warnHtml +
         stateBlock(
-          "ยังไม่มีกระทู้ในหมวดนี้",
+          "ยังไม่มีกระทู้",
           state.activeCategory
             ? "เป็นคนแรกที่ตั้งกระทู้ในหมวดนี้!"
             : "กดปุ่ม \"ตั้งกระทู้ใหม่\" เพื่อเริ่มสนทนา"
@@ -281,35 +296,81 @@
       return;
     }
 
-    const list = topics
-      .map((t) => {
-        const catName = categoryName(t.categorySlug);
-        const preview = h.truncate(t.body || "", 160);
-        const time = h.formatBangkok(t.lastActivityAt || t.createdAt, { prefix: "" });
-        const avatar = initialOf(t.authorName);
-        return `<a class="forum-topic-row" href="forum-topic.html?id=${encodeURIComponent(t.id)}">
-          <div class="forum-topic-row__avatar">${h.esc(avatar)}</div>
-          <div class="forum-topic-row__main">
-            <div class="forum-topic-row__title">${h.esc(t.title)}</div>
-            <div class="forum-topic-row__preview">${h.esc(preview)}</div>
-            <div class="forum-topic-row__meta">
-              <span class="forum-cat-pill">${h.esc(catName)}</span>
-              <span class="forum-topic-row__meta-item">👤 ${h.esc(t.authorName || "ผู้ใช้")}</span>
-              <span class="forum-topic-row__meta-item">🕒 ${h.esc(time)}</span>
-              <span class="forum-topic-row__meta-item">👁 ${t.viewCount || 0}</span>
-            </div>
-          </div>
-          <div class="forum-topic-row__replies">
-            <strong>${t.replyCount || 0}</strong>
-            <span>ตอบ</span>
-          </div>
-        </a>`;
-      })
-      .join("");
+    // เลือก view: Timeline (default) หรือ Forum list
+    const listHtml = state.view === "forum"
+      ? renderForumListView(topics)
+      : renderTimelineView(topics);
 
-    wrap.innerHTML = (wrap.querySelector(".forum-warning")?.outerHTML || "") +
-      `<div class="forum-topics">${list}</div>`;
+    wrap.innerHTML = warnHtml + listHtml;
     toggleLoadMore(state.hasMore && !state.loading);
+  }
+
+  // Timeline view: การ์ดโพสต์แบบ Community Feed
+  function renderTimelineView(topics) {
+    return `<div class="forum-timeline">
+      ${topics
+        .map((t) => {
+          const catName = categoryName(t.categorySlug);
+          const preview = h.truncate(t.body || "", 180);
+          const time = h.formatBangkok(t.lastActivityAt || t.createdAt, { prefix: "" });
+          const avatar = initialOf(t.authorName);
+          return `<article class="forum-tl-card">
+            <a class="forum-card-link" href="forum-topic.html?id=${encodeURIComponent(t.id)}"
+               aria-label="เปิดกระทู้ ${h.esc(t.title)}"></a>
+            <div class="forum-tl-card__head">
+              <div class="forum-tl-card__avatar" aria-hidden="true">${h.esc(avatar)}</div>
+              <div class="forum-tl-card__by">
+                <span class="forum-tl-card__author">${h.esc(t.authorName || "ผู้ใช้")}</span>
+                <span class="forum-tl-card__time">${h.esc(time)}</span>
+              </div>
+              <a class="forum-cat-pill forum-cat-pill--link"
+                 href="forum-category.html?category=${encodeURIComponent(t.categorySlug)}"
+                 aria-label="ไปยังหมวด ${h.esc(catName)}">${h.esc(catName)}</a>
+            </div>
+            <h3 class="forum-tl-card__title">${h.esc(t.title)}</h3>
+            <p class="forum-tl-card__preview">${h.esc(preview)}</p>
+            <div class="forum-tl-card__foot">
+              <span class="forum-tl-card__stat">💬 <strong>${t.replyCount || 0}</strong> ตอบ</span>
+              <span class="forum-tl-card__stat">👁 ${t.viewCount || 0}</span>
+            </div>
+          </article>`;
+        })
+        .join("")}
+    </div>`;
+  }
+
+  // Forum list view: รายการแบบตาราง forum เดิม
+  function renderForumListView(topics) {
+    return `<div class="forum-topics">
+      ${topics
+        .map((t) => {
+          const catName = categoryName(t.categorySlug);
+          const preview = h.truncate(t.body || "", 140);
+          const time = h.formatBangkok(t.lastActivityAt || t.createdAt, { prefix: "" });
+          const avatar = initialOf(t.authorName);
+          return `<article class="forum-topic-row">
+            <a class="forum-card-link" href="forum-topic.html?id=${encodeURIComponent(t.id)}"
+               aria-label="เปิดกระทู้ ${h.esc(t.title)}"></a>
+            <div class="forum-topic-row__avatar">${h.esc(avatar)}</div>
+            <div class="forum-topic-row__main">
+              <div class="forum-topic-row__title">${h.esc(t.title)}</div>
+              <div class="forum-topic-row__preview">${h.esc(preview)}</div>
+              <div class="forum-topic-row__meta">
+                <a class="forum-cat-pill forum-cat-pill--link"
+                   href="forum-category.html?category=${encodeURIComponent(t.categorySlug)}">${h.esc(catName)}</a>
+                <span class="forum-topic-row__meta-item">👤 ${h.esc(t.authorName || "ผู้ใช้")}</span>
+                <span class="forum-topic-row__meta-item">🕒 ${h.esc(time)}</span>
+                <span class="forum-topic-row__meta-item">👁 ${t.viewCount || 0}</span>
+              </div>
+            </div>
+            <div class="forum-topic-row__replies">
+              <strong>${t.replyCount || 0}</strong>
+              <span>ตอบ</span>
+            </div>
+          </article>`;
+        })
+        .join("")}
+    </div>`;
   }
 
   function updateCategoryCounts() {

@@ -16,11 +16,16 @@
     "rewrite:test": "node src/cli/test-rewrite.js --mock",
     "rewrite:test:real": "node src/cli/test-rewrite.js --real",
     "store:test": "node src/cli/test-store.js --mock",
+    "forum:demo:seed": "node src/cli/seed-forum-demo.js --allow-demo",
+    "forum:demo:clear": "node src/cli/clear-forum-demo.js --allow-demo",
     "test": "node --test \"test/**/*.test.js\"",
     "check": "node --check src/scraper/kitco.scraper.js && node --check src/ai/sourcePolicy.js && node --check src/ai/openai.client.js && node --check src/ai/prompts.js && node --check src/ai/validator.js && node --check src/ai/rewriter.js && node --check src/ai/pipeline.js && node --check src/ai/costTracker.js && node --check src/cli/test-scrape.js && node --check src/cli/verify-news.js && node --check src/cli/test-rewrite.js && node --check src/cli/test-store.js && node --check src/cli/update-news.js && node --check src/image/keywords.js && node --check src/image/ranking.js && node --check src/image/pexels.client.js && node --check src/image/imagePipeline.js && node --check src/image/rateLimiter.js && node --check src/store/db.js && node --check src/store/newsMapper.js && node --check src/store/newsRepository.js && node --check src/store/calendarRepository.js && node --check src/store/autoPilotRepository.js && node --check src/store/auditRepository.js && node --check src/store/contentRepository.js && node --check src/store/forumRepository.js && node --check src/content/contentValidator.js && node --check src/content/uploadService.js && node --check src/forum/sanitize.js && node --check src/forum/rateLimiter.js && node --check src/forum/uploadStore.js && node --check src/forum/forumService.js && node --check src/ea/submissionRepository.js && node --check src/ea/eaSubmissionService.js && node --check src/ea/eaSubmissionApi.js && node --check src/utils/multipart.js && node --check src/pipeline/newsPipeline.js && node --check src/pipeline/runNewsUpdate.js && node --check src/scheduler/newsScheduler.js && node --check src/autopilot/autoPilot.js && node --check src/calendar/forexFactory.scraper.js && node --check src/calendar/calendarService.js && node --check src/market/sources.js && node --check src/market/marketService.js && node --check src/api/publicNews.js && node --check src/api/calendarApi.js && node --check src/api/marketApi.js && node --check src/api/contentApi.js && node --check src/api/forumApi.js && node --check src/api/server.js && node --check src/server.js && echo 'syntax OK'"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "cheerio": "^1.0.0"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }

@@ -83,11 +83,23 @@ export function isValidAuthorId(id) {
 
 /**
  * validate topic/post id format
+ *
+ * รองรับ 2 namespace:
+ *   1) production:  `ft-<hex16>` / `fp-<hex16>` (default)
+ *   2) demo:        `demo-forum-<slug>-<seq>` หรือ `demo-post-<topic>-<seq>`
+ *      (ใช้กับ demo seed เท่านั้น — เพิ่มเติม, ไม่กระทบ production IDs)
+ *      demo IDs ถูก mark ชัดทั้งใน prefix และเนื้อหา ([DEMO]) เพื่อให้ลบได้ง่าย
  */
 export function isValidContentId(id, prefix) {
   if (!id) return false;
+  const s = String(id);
+  // production format
   const re = new RegExp(`^${prefix}-[a-f0-9]{16}$`);
-  return re.test(String(id));
+  if (re.test(s)) return true;
+  // demo namespace (local/dev seed เท่านั้น — slug/seq ปลอดภัย: [a-z0-9-])
+  if (prefix === "ft" && /^demo-forum-[a-z0-9-]+$/i.test(s)) return true;
+  if (prefix === "fp" && /^demo-post-[a-z0-9-]+$/i.test(s)) return true;
+  return false;
 }
 
 /**

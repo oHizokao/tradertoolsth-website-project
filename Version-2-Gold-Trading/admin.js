@@ -35,6 +35,8 @@
   };
 
   const state = {
+    activeOperation: null,
+    operationHistory: [],
     authenticated: false,
     status: null, // auto-pilot status
     news: [], // รายการข่าวสำหรับตาราง
@@ -73,17 +75,27 @@
   }
 
   async function doFetch(url, init) {
-    const res = await fetch(url, init);
-    let payload = null;
-    const text = await res.text();
-    if (text) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        payload = { raw: text };
+    try {
+      const res = await fetch(url, init);
+      let payload = null;
+      const text = await res.text();
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          payload = { raw: text };
+        }
       }
+      return { status: res.status, payload: payload || {} };
+    } catch (error) {
+      return {
+        status: 0,
+        payload: {
+          error: "server_unreachable",
+          message: `เชื่อมต่อเซิร์ฟเวอร์ไม่ได้: ${error?.message || "network error"}`,
+        },
+      };
     }
-    return { status: res.status, payload: payload || {} };
   }
 
   // ---------- render root ----------
@@ -240,7 +252,7 @@
           <div class="admin-head">
             <div class="admin-head__title">Admin Dashboard</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <button class="btn btn--teal btn--sm" type="button" id="adminContentBtn">
+              <button class="btn btn--teal btn--sm" type="button" id="adminContentHeaderBtn">
                 จัดการเนื้อหาเว็บไซต์
               </button>
               <button class="btn btn--ghost btn--sm" type="button" id="adminLogoutBtn">
@@ -250,6 +262,7 @@
           </div>
 
           ${state.notice ? renderNotice(state.notice) : ""}
+          <div id="adminActivityPanel">${renderActivityPanel()}</div>
 
           ${renderReviewerField()}
 
@@ -311,22 +324,32 @@
   }
 
   function renderNewsSection() {
+    const controlsBusy = !!state.activeOperation;
     const c = state.counts || {};
     const pub = (c.publishStatus) || {};
     const val = (c.validationStatus) || {};
+    const img = c.imageStatus
+      ? {
+          ...c.imageStatus,
+          pexelsSelected: c.pexelsSelected || 0,
+          ownedFallback: c.ownedFallback || 0,
+          reviewRequired: c.imageReviewRequired || 0,
+        }
+      : null;
 
     return `
       <div class="admin-news">
-        ${renderStatsGrid(pub, val, c.total || 0)}
+        ${renderStatsGrid(pub, val, c.total || 0, img)}
 
         <div class="admin-controls">
-          <button class="btn btn--teal" type="button" id="adminFetchBtn">
+          <button class="btn btn--teal" type="button" id="adminFetchBtn" ${controlsBusy ? "disabled" : ""}>
             ดึงข่าวใหม่
           </button>
-          <button class="btn btn--ghost" type="button" id="adminRefreshNewsBtn">
+          <button class="btn btn--ghost" type="button" id="adminRefreshNewsBtn" ${controlsBusy ? "disabled" : ""}>
             รีเฟรชรายการ
           </button>
           <button class="btn btn--soft" type="button" id="adminRollbackBtn"
+                  ${controlsBusy ? "disabled" : ""}
                   style="${state.rollbackArmedAt ? "border-color:var(--sell);color:var(--sell)" : ""}">
             ${state.rollbackArmedAt ? "กดอีกครั้งเพื่อยืนยัน Rollback" : "Rollback ข่าวล่าสุด"}
           </button>
@@ -349,7 +372,7 @@
     `;
   }
 
-  function renderStatsGrid(pub, val, total) {
+  function renderStatsGrid(pub, val, total, img) {
     const cards = [
       { label: "ทั้งหมด", value: total, cls: "" },
       { label: "เผยแพร่แล้ว", value: pub.published || 0, cls: "ok" },
@@ -358,8 +381,26 @@
       { label: "ปฏิเสธ", value: pub.rejected || 0, cls: "err" },
       { label: "ล้มเหลว", value: pub.failed || 0, cls: "err" },
     ];
+    // image stats (requirement ข้อ 5: Pexels สำเร็จ / รูปสำรอง / ล้มเหลว / ต้องตรวจ)
+    const imgCards = img
+      ? [
+          { label: "Pexels สำเร็จ", value: img.pexelsSelected || 0, cls: "ok" },
+          { label: "รูปสำรอง", value: img.ownedFallback || 0, cls: "warn" },
+          { label: "รูปล้มเหลว", value: img.failed || 0, cls: "err" },
+          { label: "ต้องตรวจรูป", value: img.reviewRequired || 0, cls: "warn" },
+        ]
+      : [];
     return `<div class="admin-stats">
       ${cards
+        .map(
+          (c) => `<div class="admin-stat ${c.cls}">
+        <div class="admin-stat__label">${h.esc(c.label)}</div>
+        <div class="admin-stat__value">${c.value}</div>
+      </div>`
+        )
+        .join("")}
+      ${imgCards.length ? '<div class="admin-stat admin-stat--divider"></div>' : ""}
+      ${imgCards
         .map(
           (c) => `<div class="admin-stat ${c.cls}">
         <div class="admin-stat__label">${h.esc(c.label)}</div>
@@ -419,6 +460,7 @@
     const sourceLink = n.sourceUrl
       ? `<a href="${h.esc(n.sourceUrl)}" target="_blank" rel="noopener noreferrer" class="admin-link">${h.esc(n.sourceName || "ต้นฉบับ")} ↗</a>`
       : h.esc(n.sourceName || "-");
+    const imgCell = renderNewsThumbnail(n);
 
     return `<tr>
       <td class="admin-news__title" title="${h.esc(n.title || "")}">${h.esc((n.title || "-").slice(0, 80))}${(n.title || "").length > 80 ? "…" : ""}</td>
@@ -426,7 +468,7 @@
       <td class="mono" style="font-size:var(--fs-xs)">${h.esc(h.formatBangkok(n.sourcePublishedAt, { prefix: "" }) || "-")}</td>
       <td><span class="admin-badge admin-badge--${badgeClass(n.publishStatus)}">${h.esc(STATUS_LABELS[n.publishStatus] || n.publishStatus || "-")}</span></td>
       <td><span class="admin-badge admin-badge--${valBadgeClass(n.validationStatus)}">${h.esc(STATUS_LABELS[n.validationStatus] || n.validationStatus || "-")}</span><br><span class="mono" style="font-size:var(--fs-xs)">conf ${n.aiConfidence ?? "-"}</span></td>
-      <td>${h.esc(n.imageStatus || "-")}${n.imageReviewRequired ? ' <span style="color:var(--sell)">⚠</span>' : ""}</td>
+      <td>${imgCell}</td>
       <td class="admin-news__actions">
         ${detailBtn}
         ${reviewBtn}
@@ -435,6 +477,39 @@
         ${rejectBtn}
       </td>
     </tr>`;
+  }
+
+  // ---------- news thumbnail cell ----------
+  // แสดง thumbnail 80×50 px, ป้าย Pexels/รูปสำรอง/ไม่มีรูป, object-fit cover
+  // alt จากชื่อข่าว, placeholder ถ้าโหลดไม่ได้ (onerror)
+  function renderNewsThumbnail(n) {
+    const url = n.imageUrl || "";
+    const title = (n.title || "ข่าว").slice(0, 120);
+    // กระบวนการตัดสินใจแหล่งที่มา: imageSource บอกว่ามาจากไหน
+    // - "Pexels" → ป้าย Pexels (รูปจริงจาก Pexels)
+    // - url ขึ้นต้น /news-assets/*.svg → ป้าย "รูปสำรอง" (TraderToolsTH owned artwork)
+    // - ไม่มี url → "ไม่มีรูป"
+    const isFallbackSvg = /^\/news-assets\//.test(url);
+    const isPexels = !isFallbackSvg && (n.imageSource === "Pexels" || /^https?:\/\/images\.pexels\.com\//.test(url));
+    let sourceTag = "";
+    if (!url) {
+      // ไม่มีรูปเลย → แสดงข้อความ "ไม่มีรูป"
+      sourceTag = `<span class="admin-thumb-empty">ไม่มีรูป</span>`;
+    } else if (isFallbackSvg) {
+      sourceTag = `<span class="admin-thumb-tag admin-thumb-tag--fallback">รูปสำรอง</span>`;
+    } else if (isPexels) {
+      sourceTag = `<span class="admin-thumb-tag admin-thumb-tag--pexels">Pexels</span>`;
+    } else {
+      sourceTag = `<span class="admin-thumb-tag">${h.esc(n.imageSource || "อื่น")}</span>`;
+    }
+    // thumbnail img (มี placeholder ถ้าโหลดไม่ได้)
+    const thumb = url
+      ? `<img class="admin-thumb" src="${h.esc(url)}" alt="${h.esc(title)}" loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <span class="admin-thumb-ph" style="display:none" role="img" aria-label="รูปโหลดไม่ได้">ไม่มีรูป</span>`
+      : `<span class="admin-thumb-ph" role="img" aria-label="ไม่มีรูป">ไม่มีรูป</span>`;
+    const reviewFlag = n.imageReviewRequired ? ' <span class="admin-thumb-warn" title="ต้องตรวจรูป">⚠</span>' : "";
+    return `<div class="admin-thumb-cell">${thumb}${sourceTag}${reviewFlag}</div>`;
   }
 
   function badgeClass(status) {
@@ -460,6 +535,7 @@
 
   // ---------- Auto Pilot section (from Phase 10, unchanged logic) ----------
   function renderAutoPilotSection(s, running, emergency) {
+    const controlsBusy = !!state.activeOperation;
     return `
       <div class="card">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px">
@@ -489,24 +565,24 @@
       <h3 class="admin-subtitle">การควบคุม</h3>
       <div class="admin-controls">
         <button class="btn btn--primary" type="button" id="adminEnableBtn"
-                ${s.enabled || emergency ? "disabled" : ""}>
+                ${s.enabled || emergency || controlsBusy ? "disabled" : ""}>
           เปิด Auto Pilot
         </button>
         <button class="btn btn--ghost" type="button" id="adminDisableBtn"
-                ${!s.enabled ? "disabled" : ""}>
+                ${!s.enabled || controlsBusy ? "disabled" : ""}>
           ปิด Auto Pilot
         </button>
         <button class="btn btn--teal" type="button" id="adminRunBtn"
-                ${running || !s.enabled || emergency ? "disabled" : ""}>
+                ${running || !s.enabled || emergency || controlsBusy ? "disabled" : ""}>
           รัน Auto Pilot ตอนนี้
         </button>
         <button class="btn btn--soft" type="button" id="adminEmergencyBtn"
                 style="${emergency ? "border-color:var(--sell);color:var(--sell)" : ""}"
-                ${emergency ? "disabled" : ""}>
+                ${emergency || controlsBusy ? "disabled" : ""}>
           ${state.emergencyArmedAt ? "กดอีกครั้งเพื่อยืนยัน" : "Emergency Stop"}
         </button>
         <button class="btn btn--ghost" type="button" id="adminClearEmgBtn"
-                ${!emergency ? "disabled" : ""}>
+                ${!emergency || controlsBusy ? "disabled" : ""}>
           Clear Emergency
         </button>
       </div>
@@ -578,6 +654,116 @@
       .join("");
   }
 
+  function renderActivityPanel() {
+    const active = state.activeOperation;
+    const history = state.operationHistory.slice(0, 5);
+    const activeHtml = active
+      ? `<div class="admin-activity__active" role="status" aria-live="polite">
+          <span class="admin-spinner admin-spinner--sm" aria-hidden="true"></span>
+          <div>
+            <div class="admin-activity__status">กำลังทำงาน</div>
+            <strong>${h.esc(active.label)}</strong>
+            <div class="admin-activity__detail">${h.esc(active.detail || "ระบบกำลังประมวลผล กรุณารอสักครู่")}</div>
+          </div>
+        </div>`
+      : `<div class="admin-activity__idle"><span class="admin-activity__dot"></span> ระบบพร้อมรับคำสั่ง</div>`;
+    const historyHtml = history.length
+      ? `<div class="admin-activity__history">
+          <div class="admin-activity__history-title">ผลการทำงานล่าสุด</div>
+          ${history.map((item) => `<div class="admin-activity__item admin-activity__item--${item.type}">
+            <span class="admin-activity__icon" aria-hidden="true">${item.type === "success" ? "✓" : item.type === "error" ? "!" : "i"}</span>
+            <div><strong>${h.esc(item.label)}</strong><div>${h.esc(item.summary)}</div></div>
+            <time>${h.esc(item.time)}</time>
+          </div>`).join("")}
+        </div>`
+      : `<div class="admin-activity__empty">เมื่อกดปุ่ม ระบบจะแสดงขั้นตอนและผลลัพธ์ที่นี่</div>`;
+    return `<section class="admin-activity card" aria-label="สถานะการทำงานของระบบ">
+      <div class="admin-activity__head"><h2>สถานะการทำงาน</h2><span>${active ? "กำลังประมวลผล" : "พร้อมใช้งาน"}</span></div>
+      ${activeHtml}
+      ${historyHtml}
+    </section>`;
+  }
+
+  function syncActivityPanel() {
+    const panel = document.getElementById("adminActivityPanel");
+    if (panel) panel.innerHTML = renderActivityPanel();
+  }
+
+  function disableActionButtons(disabled) {
+    const ids = [
+      "adminFetchBtn", "adminRefreshNewsBtn", "adminRollbackBtn", "adminEnableBtn",
+      "adminDisableBtn", "adminRunBtn", "adminEmergencyBtn", "adminClearEmgBtn",
+    ];
+    ids.forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = disabled || btn.disabled;
+    });
+    document.querySelectorAll(".admin-news-table [data-act]").forEach((btn) => {
+      btn.disabled = disabled;
+    });
+  }
+
+  function beginOperation(key, label, detail, buttonId, buttonLabel) {
+    if (state.activeOperation) {
+      state.notice = { type: "info", msg: `ระบบกำลังทำงาน: ${state.activeOperation.label} กรุณารอให้เสร็จก่อน` };
+      return false;
+    }
+    state.activeOperation = { key, label, detail, startedAt: new Date().toISOString() };
+    state.notice = null;
+    syncActivityPanel();
+    disableActionButtons(true);
+    if (buttonId && buttonLabel) setBtnLoading(buttonId, buttonLabel);
+    return true;
+  }
+
+  function finishOperation(type, summary) {
+    const op = state.activeOperation;
+    if (!op) return;
+    state.operationHistory.unshift({
+      key: op.key,
+      label: op.label,
+      summary,
+      type,
+      time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
+    });
+    state.operationHistory = state.operationHistory.slice(0, 8);
+    state.activeOperation = null;
+    state.notice = { type, msg: summary };
+    syncActivityPanel();
+  }
+
+  function recordOperationResult(label, type, summary) {
+    state.operationHistory.unshift({
+      key: `record-${Date.now()}`,
+      label,
+      summary,
+      type,
+      time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
+    });
+    state.operationHistory = state.operationHistory.slice(0, 8);
+    state.notice = { type, msg: summary };
+    syncActivityPanel();
+  }
+
+  function formatNewsRunResult(payload = {}) {
+    if (payload.skipped) return "ไม่ได้เริ่มรอบใหม่ เพราะมีการดึงข่าวทำงานอยู่แล้ว";
+    const source = Number(payload.digestItems || 0);
+    const opened = Number(payload.opened || 0);
+    const saved = Number(payload.saved || 0);
+    const existing = Number(payload.existing || 0);
+    const duplicates = Number(payload.duplicates || 0);
+    const review = Number(payload.needsReview || 0);
+    const failed = Number(payload.failed || 0);
+    return `เสร็จแล้ว: พบจากต้นทาง ${source} ข่าว · เปิดตรวจ ${opened} · บันทึกใหม่ ${saved} · ซ้ำกับระบบ ${existing} · ซ้ำระหว่างประมวลผล ${duplicates} · รอตรวจ ${review} · ล้มเหลว ${failed}`;
+  }
+
+  function setRowBusy(id, label) {
+    Array.from(document.querySelectorAll(".admin-news-table [data-id]")).filter((btn) => btn.dataset.id === String(id)).forEach((btn) => {
+      btn.disabled = true;
+      if (btn.dataset.act !== "detail") btn.textContent = label;
+    });
+  }
+
   function renderNotice(notice) {
     return `<div class="admin-notice admin-notice--${notice.type}">${h.esc(notice.msg)}</div>`;
   }
@@ -626,12 +812,14 @@
   // เปิด content manager จาก dashboard — ใช้ module แยก (admin-content.js)
   // สอดคล้องกับ admin.js เดิม: ใช้ session เดียวกัน (cookie HttpOnly)
   function bindContentButton() {
-    const btn = document.getElementById("adminContentBtn");
-    if (btn && window.TT && TT.adminContent) {
-      btn.addEventListener("click", () => {
-        TT.adminContent.open();
-      });
-    }
+    document.querySelectorAll("#adminContentBtn, #adminContentHeaderBtn").forEach((btn) => {
+      if (window.TT && TT.adminContent) {
+        btn.addEventListener("click", () => {
+          recordOperationResult("จัดการเนื้อหาเว็บไซต์", "info", "เปิดหน้าจัดการ EA, บทความ, FAQ และรีวิวโบรกเกอร์แล้ว");
+          TT.adminContent.open();
+        });
+      }
+    });
   }
   // เมื่อ content module แจ้ง session หมดอายุ → กลับไป login
   document.addEventListener("tt:admin-session-expired", () => {
@@ -656,14 +844,19 @@
   function bindNewsControls() {
     const fetchBtn = document.getElementById("adminFetchBtn");
     if (fetchBtn) {
-      fetchBtn.addEventListener("click", () => void handleFetchNews());
+      fetchBtn.addEventListener("click", () => void handleFetchNewsWithStatus());
     }
     const refreshBtn = document.getElementById("adminRefreshNewsBtn");
     if (refreshBtn) {
       refreshBtn.addEventListener("click", async () => {
-        state.notice = null;
-        await loadCounts();
-        await loadNews();
+        if (!beginOperation("refresh-list", "รีเฟรชรายการข่าว", "กำลังอ่านยอดรวม สถานะข่าว และรูปภาพล่าสุดจากฐานข้อมูล", "adminRefreshNewsBtn", "กำลังรีเฟรช...")) return;
+        try {
+          await loadCounts();
+          await loadNews();
+          finishOperation("success", `รีเฟรชสำเร็จ แสดงข่าว ${state.news.length} รายการ จากทั้งหมด ${state.counts?.total || 0} รายการ`);
+        } catch (err) {
+          finishOperation("error", `รีเฟรชไม่สำเร็จ: ${err.message || err}`);
+        }
         renderDashboard();
       });
     }
@@ -690,8 +883,8 @@
         if (!btn) return;
         const act = btn.dataset.act;
         const id = btn.dataset.id;
-        if (act === "detail") void handleShowDetail(id);
-        else if (act === "review") void handleOpenReview(id);
+        if (act === "detail") void handleShowDetailWithStatus(id);
+        else if (act === "review") void handleOpenReviewWithStatus(id);
         else if (act === "approve") void handleApprove(id);
         else if (act === "reject") void handleReject(id);
         else if (act === "publish") void handlePublish(id);
@@ -700,6 +893,57 @@
   }
 
   // ---------- news actions ----------
+  async function handleShowDetailWithStatus(id) {
+    if (!beginOperation(`detail-${id}`, "โหลดรายละเอียดข่าว", "กำลังอ่านเนื้อหา สถานะ และข้อมูลรูปภาพของข่าว", null, null)) return;
+    setRowBusy(id, "กำลังโหลด...");
+    await handleShowDetail(id);
+    if (!state.authenticated) return;
+    const failed = state.notice?.type === "error";
+    finishOperation(failed ? "error" : "success", failed ? state.notice.msg : "โหลดรายละเอียดข่าวสำเร็จ");
+    renderDashboard();
+  }
+
+  async function handleOpenReviewWithStatus(id) {
+    if (!beginOperation(`review-${id}`, "เปิดแบบฟอร์มตรวจทาน", "กำลังโหลดต้นฉบับ เนื้อหาภาษาไทย และผลตรวจคุณภาพ", null, null)) return;
+    setRowBusy(id, "กำลังโหลด...");
+    await handleOpenReview(id);
+    if (!state.authenticated) return;
+    const failed = state.notice?.type === "error";
+    finishOperation(failed ? "error" : "success", failed ? state.notice.msg : "เปิดแบบฟอร์มตรวจทานแล้ว");
+    renderDashboard();
+  }
+
+  async function handleFetchNewsWithStatus() {
+    if (!beginOperation(
+      "fetch-news",
+      "ดึงข่าวใหม่",
+      "กำลังอ่านรายการต้นทาง → ตรวจข่าวซ้ำ → เปิดบทความ → เรียบเรียงและตรวจคุณภาพ → ดึงรูปจาก Pexels → บันทึกผล",
+      "adminFetchBtn",
+      "กำลังดึงและตรวจข่าว..."
+    )) return;
+    try {
+      const { status, payload } = await doFetch("/api/admin/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ maxPerRun: 3 }),
+      });
+      if (status === 200 || status === 202) {
+        finishOperation(payload.skipped ? "info" : "success", formatNewsRunResult(payload));
+      } else if (status === 401) {
+        state.activeOperation = null;
+        return sessionExpired();
+      } else if (status === 403) {
+        finishOperation("error", "ไม่อนุญาตให้สั่งดึงข่าวจากหน้านี้");
+      } else {
+        finishOperation("error", `ดึงข่าวไม่สำเร็จ: ${payload.error || `HTTP ${status}`}`);
+      }
+    } catch (err) {
+      finishOperation("error", `เชื่อมต่อระบบไม่ได้: ${err.message || err}`);
+    }
+    await loadAllAndRender();
+  }
+
   async function handleFetchNews() {
     setBtnLoading("adminFetchBtn", "กำลังดึง...");
     state.notice = null;
@@ -750,8 +994,6 @@
       ["validationStatus", n.validationStatus],
       ["publishStatus", n.publishStatus],
       ["aiConfidence", n.aiConfidence],
-      ["imageStatus", n.imageStatus],
-      ["imageReviewRequired", n.imageReviewRequired],
       ["sourcePolicy", n.sourcePolicy],
       ["createdAt", h.formatBangkok(n.createdAt, { prefix: "" })],
       ["publishedAt", n.publishedAt ? h.formatBangkok(n.publishedAt, { prefix: "" }) : "-"],
@@ -759,6 +1001,7 @@
     overlay.innerHTML = `
       <div class="admin-confirm admin-confirm--wide" role="dialog" aria-modal="true">
         <div class="admin-confirm__title">รายละเอียดข่าว</div>
+        ${renderImagePreviewBlock(n)}
         <div class="admin-detail">
           ${fields
             .map(
@@ -776,7 +1019,287 @@
     `;
     document.body.appendChild(overlay);
     overlay.addEventListener("click", (e) => {
+      const refreshBtn = e.target.closest("[data-act='refresh-image']");
+      if (refreshBtn) {
+        const id = refreshBtn.dataset.id;
+        overlay.remove();
+        void handleRefreshImage(id);
+        return;
+      }
       if (e.target.closest("[data-act='close']") || e.target === overlay) overlay.remove();
+    });
+  }
+
+  // ---------- Image Preview block (สำหรับ detail modal) ----------
+  // แสดงรูปใหญ่ + ชื่อแหล่งที่มา + ช่างภาพ + ลิงก์ต้นฉบับ + เครดิต Pexels
+  //        + สถานะรูป + imageReviewRequired + ปุ่มดึงรูปจาก Pexels ใหม่
+  function renderImagePreviewBlock(n) {
+    const url = n.imageUrl || "";
+    const title = (n.thaiTitle || n.originalTitle || "ข่าว").slice(0, 120);
+    const status = n.imageStatus || "-";
+    const source = n.imageSource || (url ? "ไม่ระบุ" : "-");
+    const photographer = n.imageAuthor || "-";
+    const authorUrl = n.imageAuthorUrl || "";
+    const sourceUrl = n.imageSourceUrl || "";
+    const license = n.imageLicense || "-";
+    const reviewRequired = !!n.imageReviewRequired;
+    const keywords = Array.isArray(n.imageSearchKeywords) ? n.imageSearchKeywords : [];
+
+    const isFallbackSvg = /^\/news-assets\//.test(url);
+    const isPexels = !isFallbackSvg && (source === "Pexels" || /^https?:\/\/images\.pexels\.com\//.test(url));
+
+    // เครดิต Pexels: "Photo by {photographer} on Pexels"
+    let credit = "";
+    if (isPexels && photographer && photographer !== "-") {
+      credit = `Photo by ${photographer} on Pexels`;
+    } else if (isFallbackSvg) {
+      credit = "งานศิลปะโดย TraderToolsTH Design";
+    } else if (source !== "-") {
+      credit = `ภาพจาก ${source}`;
+    }
+
+    // ลิงก์ต้นฉบับ (Pexels photo page หรือ source url)
+    const pexelsLink = isPexels && authorUrl && /^https?:\/\//.test(authorUrl)
+      ? `<a href="${h.esc(authorUrl)}" target="_blank" rel="noopener noreferrer" class="admin-link">หน้าช่างภาพบน Pexels ↗</a>`
+      : (sourceUrl && /^https?:\/\//.test(sourceUrl)
+        ? `<a href="${h.esc(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="admin-link">ดูที่ต้นฉบับ ↗</a>`
+        : "");
+
+    // รูปใหญ่ พร้อม placeholder ถ้าโหลดไม่ได้
+    // คลิกที่รูปเพื่อเปิดภาพต้นฉบับ (Pexels photo page หรือ source url)
+    const clickHref = sourceUrl && /^https?:\/\//.test(sourceUrl)
+      ? sourceUrl
+      : (isPexels && authorUrl && /^https?:\/\//.test(authorUrl) ? authorUrl : url);
+    const bigImg = url
+      ? `${clickHref && /^https?:\/\//.test(clickHref) ? `<a href="${h.esc(clickHref)}" target="_blank" rel="noopener noreferrer" class="admin-preview-img-link" title="เปิดภาพต้นฉบับ">` : ""}
+         <img class="admin-preview-img" src="${h.esc(url)}" alt="${h.esc(title)}" loading="lazy"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         <div class="admin-preview-ph" style="display:none" role="img" aria-label="รูปโหลดไม่ได้">
+           <span>โหลดรูปไม่ได้</span>
+         </div>
+         ${clickHref && /^https?:\/\//.test(clickHref) ? "</a>" : ""}`
+      : `<div class="admin-preview-ph" role="img" aria-label="ไม่มีรูป"><span>ไม่มีรูป</span></div>`;
+
+    // status badge สีตามสถานะ
+    const statusClass = status === "selected" ? "admin-badge--ok"
+      : status === "fallback" ? "admin-badge--warn"
+      : status === "failed" ? "admin-badge--err" : "";
+
+    return `<div class="admin-preview">
+      <div class="admin-preview__media">
+        ${bigImg}
+        ${reviewRequired ? '<span class="admin-preview-warn" title="ต้องตรวจรูป">⚠ ต้องตรวจรูป</span>' : ""}
+      </div>
+      <div class="admin-preview__meta">
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">แหล่งรูป</span>
+          <span><strong>${h.esc(source)}</strong>${isPexels ? ' <span class="admin-thumb-tag admin-thumb-tag--pexels">Pexels</span>' : ""}${isFallbackSvg ? ' <span class="admin-thumb-tag admin-thumb-tag--fallback">รูปสำรอง</span>' : ""}</span>
+        </div>
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">ช่างภาพ</span>
+          <span>${h.esc(photographer)}${pexelsLink ? " · " + pexelsLink : ""}</span>
+        </div>
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">เครดิต</span>
+          <span>${h.esc(credit || "-")}</span>
+        </div>
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">สถานะรูป</span>
+          <span><span class="admin-badge ${statusClass}">${h.esc(status)}</span>${reviewRequired ? ' <span class="admin-badge admin-badge--warn">ต้องตรวจ</span>' : ""}</span>
+        </div>
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">imageReviewRequired</span>
+          <span class="mono">${reviewRequired ? "true" : "false"}</span>
+        </div>
+        <div class="admin-preview__row">
+          <span class="admin-detail__key">ลิขสิทธิ์</span>
+          <span>${h.esc(license)}</span>
+        </div>
+        ${keywords.length ? `<div class="admin-preview__row"><span class="admin-detail__key">keyword</span><span class="mono" style="font-size:var(--fs-xs)">${keywords.map((k) => h.esc(k)).join(", ")}</span></div>` : ""}
+        <div class="admin-preview__actions">
+          <button class="btn btn--teal btn--sm" type="button" data-act="refresh-image" data-id="${h.esc(n.id)}" title="เปลี่ยนรูปเดิม — ค้น Pexels ใหม่อีกครั้ง (ใช้โควตา Pexels)">
+            ${TT.icon ? TT.icon("refresh", 14) : ""} เปลี่ยนรูปเดิม (ดึง Pexels ใหม่)
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ---------- refresh image action ----------
+  // flow: confirm (ใช้โควตา Pexels) → busyRows + disabled + "กำลังค้นหารูป..." →
+  //       reload + อัปเดต Preview ทันทีเมื่อสำเร็จ
+  // ป้องกันกดซ้อน: state.busyRows + backend ก็มี in-flight lock คืน 409
+  async function handleRefreshImage(id) {
+    // กันกดซ้อนฝั่ง frontend
+    if (state.busyRows.has(id)) {
+      state.notice = { type: "error", msg: "กำลังประมวลผลข่าวนี้อยู่แล้ว กรุณารอสักครู่" };
+      renderDashboard();
+      return;
+    }
+    // ขั้นต่อขั้นยืนยัน (เพราะใช้โควตา Pexels)
+    const confirmed = await showConfirmDialog({
+      title: "ดึงรูปจาก Pexels ใหม่?",
+      message: "การดึงรูปใหม่จะเรียก Pexels API ซึ่งใช้โควตารายชั่วโมง และอาจเขียนทับรูปปัจจุบัน หาก Pexels ล้มเหลว ระบบจะเก็บรูปเดิมไว้ ต้องการดำเนินการต่อหรือไม่?",
+      confirmLabel: "ดึงรูปใหม่",
+      cancelLabel: "ยกเลิก",
+      danger: false,
+    });
+    if (!confirmed) return;
+
+    state.busyRows.add(id);
+    // แสดง modal สถานะกำลังค้นหา
+    showImageLoadingModal(id);
+
+    try {
+      const reviewer = state.reviewer || "admin";
+      const { status, payload } = await news("POST", `/${encodeURIComponent(id)}/refresh-image`, {
+        body: { reviewer },
+      });
+      if (status === 401) {
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        return sessionExpired();
+      }
+      if (status === 404) {
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        state.notice = { type: "error", msg: "ไม่พบข่าวนี้" };
+        renderDashboard();
+        return;
+      }
+      if (status === 400) {
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        state.notice = { type: "error", msg: "ต้องระบุชื่อผู้ตรวจ (reviewer)" };
+        renderDashboard();
+        return;
+      }
+      if (status === 409) {
+        // backend บอกว่ากำลัง refresh อยู่แล้ว (กดซ้อน)
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        state.notice = { type: "info", msg: "ระบบกำลังดึงรูปข่าวนี้อยู่แล้ว กรุณารอสักครู่" };
+        renderDashboard();
+        return;
+      }
+      if (status === 502) {
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        const reason = payload.message || payload.error || "Pexels ตอบไม่ได้";
+        showImageErrorModal(id, `ค้นหารูปไม่สำเร็จ: ${reason} (รูปเดิมยังคงอยู่)`);
+        return;
+      }
+      if (status !== 200) {
+        closeImageLoadingModal();
+        state.busyRows.delete(id);
+        const reason = payload.error || payload.message || `HTTP ${status}`;
+        showImageErrorModal(id, `เกิดข้อผิดพลาด: ${reason}`);
+        return;
+      }
+      // สำเร็จ — แยกกรณี keptPreviousImage (Pexels fail แต่เก็บรูปเดิม)
+      closeImageLoadingModal();
+      state.busyRows.delete(id);
+      const keptOld = !!payload.keptPreviousImage;
+      // reload ข่าวเพื่ออัปเดต preview + table
+      const { status: st2, payload: detail } = await news("GET", `/${encodeURIComponent(id)}`);
+      if (st2 === 200) {
+        showDetailModal(detail);
+      }
+      if (keptOld) {
+        state.notice = { type: "info", msg: "Pexels ไม่พร้อมใช้งาน ระบบเก็บรูปเดิมไว้ ลองอีกครั้งภายหลัง" };
+      } else {
+        state.notice = { type: "success", msg: "ดึงรูปใหม่สำเร็จแล้ว" };
+      }
+      // refresh table ทันที
+      recordOperationResult("เปลี่ยนรูปข่าว", keptOld ? "info" : "success", state.notice?.msg || (keptOld ? "เก็บรูปเดิมไว้" : "ดึงรูปใหม่สำเร็จ"));
+      await loadNews();
+      renderDashboard();
+    } catch (err) {
+      closeImageLoadingModal();
+      state.busyRows.delete(id);
+      recordOperationResult("เปลี่ยนรูปข่าว", "error", `เชื่อมต่อระบบไม่ได้: ${err.message || err}`);
+      showImageErrorModal(id, `เชื่อมต่อ server ไม่ได้: ${err.message || err}`);
+    }
+  }
+
+  // ตัวช่วย modals สำหรับ refresh-image flow (loading + error + confirm)
+  function showImageLoadingModal(id) {
+    closeImageLoadingModal();
+    const overlay = document.createElement("div");
+    overlay.className = "admin-confirm-overlay";
+    overlay.id = "adminImageLoadingOverlay";
+    overlay.innerHTML = `
+      <div class="admin-confirm" role="alertdialog" aria-modal="true" aria-busy="true">
+        <div class="admin-confirm__title">กำลังค้นหารูป...</div>
+        <div class="admin-detail" style="text-align:center;padding:20px 0">
+          <div class="admin-spinner" aria-hidden="true"></div>
+          <p style="margin-top:12px;color:var(--text-muted)">กำลังเรียก Pexels สำหรับข่าวนี้ (อาจใช้เวลา 10–30 วินาที)</p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+  }
+  function closeImageLoadingModal() {
+    const el = document.getElementById("adminImageLoadingOverlay");
+    if (el) el.remove();
+  }
+  function showImageErrorModal(id, msg) {
+    const overlay = document.createElement("div");
+    overlay.className = "admin-confirm-overlay";
+    overlay.innerHTML = `
+      <div class="admin-confirm" role="alertdialog" aria-modal="true">
+        <div class="admin-confirm__title">⚠️ ดึงรูปไม่สำเร็จ</div>
+        <div class="admin-detail" style="padding:12px 0">
+          <p style="color:var(--text-secondary);word-break:break-word">${h.esc(msg)}</p>
+          <p style="margin-top:8px;font-size:var(--fs-xs);color:var(--text-muted)">คุณสามารถลองอีกครั้งได้ หรือใช้รูปสำรองชั่วคราว</p>
+        </div>
+        <div class="admin-confirm__actions">
+          <button class="btn btn--ghost" type="button" data-act="close">ปิด</button>
+          <button class="btn btn--primary" type="button" data-act="retry">ลองอีกครั้ง</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", (e) => {
+      if (e.target.closest("[data-act='retry']")) {
+        overlay.remove();
+        void handleRefreshImage(id);
+        return;
+      }
+      if (e.target.closest("[data-act='close']") || e.target === overlay) overlay.remove();
+    });
+  }
+
+  // generic confirm dialog ที่คืน Promise<boolean>
+  function showConfirmDialog({ title, message, confirmLabel = "ยืนยัน", cancelLabel = "ยกเลิก", danger = false }) {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "admin-confirm-overlay";
+      overlay.innerHTML = `
+        <div class="admin-confirm" role="dialog" aria-modal="true">
+          <div class="admin-confirm__title">${h.esc(title)}</div>
+          <div class="admin-detail" style="padding:12px 0">
+            <p style="color:var(--text-secondary);word-break:break-word">${h.esc(message)}</p>
+          </div>
+          <div class="admin-confirm__actions">
+            <button class="btn btn--ghost" type="button" data-act="cancel">${h.esc(cancelLabel)}</button>
+            <button class="btn ${danger ? "btn--soft" : "btn--primary"}" type="button" data-act="confirm">${h.esc(confirmLabel)}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      const done = (val) => {
+        overlay.remove();
+        resolve(val);
+      };
+      overlay.addEventListener("click", (e) => {
+        if (e.target.closest("[data-act='confirm']")) return done(true);
+        if (e.target.closest("[data-act='cancel']") || e.target === overlay) return done(false);
+      });
+      overlay.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") return done(false);
+        if (e.key === "Enter") return done(true);
+      });
     });
   }
 
@@ -937,11 +1460,24 @@
 
   async function withRowLock(id, fn) {
     if (state.busyRows.has(id)) return;
+    if (!beginOperation(
+      `news-row-${id}`,
+      "ดำเนินการกับข่าว",
+      "กำลังส่งคำสั่ง ตรวจเงื่อนไข และบันทึกสถานะข่าวรายการนี้",
+      null,
+      null
+    )) return;
     state.busyRows.add(id);
+    setRowBusy(id, "กำลังทำงาน...");
     try {
       await fn();
+      const result = state.notice || { type: "success", msg: "ดำเนินการกับข่าวเสร็จแล้ว" };
+      finishOperation(result.type || "success", result.msg || "ดำเนินการกับข่าวเสร็จแล้ว");
+    } catch (err) {
+      finishOperation("error", `ดำเนินการไม่สำเร็จ: ${err.message || err}`);
     } finally {
       state.busyRows.delete(id);
+      if (state.authenticated) renderDashboard();
     }
   }
 
@@ -1016,6 +1552,7 @@
   }
 
   async function doRollback() {
+    if (!beginOperation("rollback", "Rollback ข่าวล่าสุด", "กำลังค้นหาข่าวที่เผยแพร่ล่าสุดและเปลี่ยนกลับเป็นสถานะพร้อมเผยแพร่", "adminRollbackBtn", "กำลัง Rollback...")) return;
     state.notice = null;
     const { status, payload } = await ap("POST", "/rollback", {
       body: { reviewer: state.reviewer.trim() || "admin" },
@@ -1031,6 +1568,7 @@
     } else {
       state.notice = { type: "error", msg: payload.error || "rollback ไม่สำเร็จ" };
     }
+    finishOperation(state.notice?.type || "info", state.notice?.msg || "Rollback เสร็จแล้ว");
     await loadAllAndRender();
   }
 
@@ -1053,6 +1591,7 @@
   }
 
   async function doEnable() {
+    if (!beginOperation("enable-auto", "เปิด Auto Pilot", "กำลังตรวจ ENV, Emergency Stop และบันทึกสถานะเปิดใช้งาน", "adminEnableBtn", "กำลังเปิด...")) return;
     setBtnLoading("adminEnableBtn", "กำลังเปิด...");
     const { status, payload } = await ap("POST", "/enable");
     state.notice = null;
@@ -1064,12 +1603,17 @@
       };
       state.notice = { type: "error", msg: map[payload.error] || "เปิดไม่ได้ในขณะนี้" };
     } else if (status === 403) state.notice = { type: "error", msg: "ไม่อนุญาตให้เรียกจากแหล่งนี้" };
-    else if (status === 401) return sessionExpired();
+    else if (status === 401) {
+      state.activeOperation = null;
+      return sessionExpired();
+    }
     else state.notice = { type: "error", msg: payload.error || "เปิดไม่สำเร็จ" };
+    finishOperation(state.notice?.type || "info", state.notice?.msg || "ตรวจสถานะ Auto Pilot แล้ว");
     await loadAllAndRender();
   }
 
   async function handleRunOnce() {
+    if (!beginOperation("run-auto", "รัน Auto Pilot ตอนนี้", "กำลังส่งคำสั่งให้ระบบดึงข่าว ตรวจคุณภาพ ดึงรูป และเผยแพร่ข่าวที่ผ่าน Safety Gate", "adminRunBtn", "กำลังสั่งรัน...")) return;
     setBtnLoading("adminRunBtn", "กำลังสั่งรัน...");
     const { status, payload } = await ap("POST", "/run-once", { body: { maxPerRun: 3 } });
     state.notice = null;
@@ -1081,6 +1625,7 @@
     else if (status === 403) state.notice = { type: "error", msg: "ไม่อนุญาตให้เรียกจากแหล่งนี้" };
     else if (status === 401) return sessionExpired();
     else state.notice = { type: "error", msg: payload.error || "สั่งรันไม่สำเร็จ" };
+    finishOperation(state.notice?.type || "info", state.notice?.msg || "ส่งคำสั่ง Auto Pilot แล้ว");
     await loadAllAndRender();
   }
 
@@ -1103,16 +1648,25 @@
   }
 
   async function apActionWithRefresh(method, path, successMsg) {
+    const configByPath = {
+      "/disable": ["disable-auto", "ปิด Auto Pilot", "กำลังหยุดการทำงานอัตโนมัติและบันทึกสถานะ", "adminDisableBtn", "กำลังปิด..."],
+      "/emergency-stop": ["emergency-stop", "Emergency Stop", "กำลังส่งคำสั่งหยุดฉุกเฉิน ระบบจะหยุดก่อนประมวลผลข่าวถัดไป", "adminEmergencyBtn", "กำลังสั่งหยุด..."],
+      "/clear-emergency": ["clear-emergency", "ล้าง Emergency Stop", "กำลังล้างสถานะหยุดฉุกเฉินและตรวจความพร้อมของระบบ", "adminClearEmgBtn", "กำลังล้าง..."],
+    };
+    const op = configByPath[path] || ["auto-action", "ดำเนินการ Auto Pilot", "กำลังส่งคำสั่งไปยังระบบ", null, null];
+    if (!beginOperation(...op)) return;
     state.notice = null;
     const { status, payload } = await ap(method, path);
     if (status === 200) state.notice = { type: "success", msg: successMsg };
     else if (status === 403) state.notice = { type: "error", msg: "ไม่อนุญาตให้เรียกจากแหล่งนี้" };
     else if (status === 401) return sessionExpired();
     else state.notice = { type: "error", msg: payload.error || "ดำเนินการไม่สำเร็จ" };
+    finishOperation(state.notice?.type || "info", state.notice?.msg || successMsg);
     await loadAllAndRender();
   }
 
   function sessionExpired() {
+    state.activeOperation = null;
     state.authenticated = false;
     stopAutoRefresh();
     state.notice = { type: "info", msg: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่" };

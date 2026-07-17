@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { toPublicNews, publicCategory } from "./publicNews.js";
@@ -10,7 +10,7 @@ import { createForumApiHandler } from "./forumApi.js";
 import { createEaSubmissionApiHandler } from "../ea/eaSubmissionApi.js";
 import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
 import { validateRewritten } from "../ai/validator.js";
-import { makeOwnedPlaceholder } from "../image/imagePipeline.js";
+import { makeOwnedPlaceholder, findImageForNews } from "../image/imagePipeline.js";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -58,6 +58,31 @@ function json(res, status, payload) {
 function clampInt(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+/**
+ * ใช้สำหรับป้องกันการกด refresh-image ซ้อน (per process).
+ * Set ของ news id ที่กำลัง refresh รูปอยู่.
+ */
+const imageRefreshInFlight = new Set();
+
+/**
+ * สกัด image fields สาธารณะจาก news object เพื่อส่งกลับ frontend.
+ * ห้ามส่ง internal fields (validation/publish/duplicateHash) หรือ secret ใดๆ.
+ */
+function publicImageOf(item) {
+  if (!item) return null;
+  return {
+    imageUrl: item.imageUrl || null,
+    imageSource: item.imageSource || null,
+    imageAuthor: item.imageAuthor || null,
+    imageAuthorUrl: item.imageAuthorUrl || null,
+    imageLicense: item.imageLicense || null,
+    imageSourceUrl: item.imageSourceUrl || null,
+    imageStatus: item.imageStatus || null,
+    imageReviewRequired: !!item.imageReviewRequired,
+    imageSearchKeywords: Array.isArray(item.imageSearchKeywords) ? item.imageSearchKeywords : [],
+  };
 }
 
 function isAuthorized(req, token) {
@@ -616,10 +641,15 @@ export function createRequestHandler(options) {
           return json(res, 403, { error: "origin_not_allowed" });
         }
         if (req.method === "GET" && pathname === "/api/admin/news/counts") {
-          // stats สำหรับ Admin Dashboard: แยกตาม publish_status + validation_status
+          // stats สำหรับ Admin Dashboard: แยกตาม publish_status + validation_status + image_status
+          // (requirement ข้อ 5: แสดงผลการดึงข่าว — Pexels สำเร็จ/สำรอง/ล้มเหลว/ต้องตรวจ)
           return json(res, 200, {
             publishStatus: repo.countByPublishStatus(),
             validationStatus: repo.countByStatus(),
+            imageStatus: repo.countByImageStatus(),
+            pexelsSelected: repo.countPexelsImages(),
+            ownedFallback: repo.countOwnedFallbackImages(),
+            imageReviewRequired: repo.countImageReviewRequired(),
             total: repo.countAll(),
           });
         }
@@ -637,6 +667,8 @@ export function createRequestHandler(options) {
             aiConfidence: item.aiConfidence,
             imageStatus: item.imageStatus,
             imageReviewRequired: item.imageReviewRequired,
+            imageUrl: item.imageUrl || null,
+            imageSource: item.imageSource || null,
             sourceUrl: item.sourceUrl,
             sourceName: item.source,
             sourcePublishedAt: item.sourcePublishedAt,
@@ -650,6 +682,136 @@ export function createRequestHandler(options) {
           if (!item) return json(res, 404, { error: "news_not_found" });
           return json(res, 200, item);
         }
+        // ---- Image refresh (Pexels) สำหรับข่าวเดียว ----
+        // POST /api/admin/news/:id/refresh-image
+        //   body: { reviewer: string }
+        // กฎ QC:
+        //   - อัปเดตเฉพาะ image fields + image credit เท่านั้น
+        //   - ห้ามแก้หัวข้อ/เนื้อหา/validation_status/publish_status
+        //   - ถ้า Pexels ล้มเหลวทั้งหมด (status=failed) → ห้ามลบรูปเดิม (เก็บ cache)
+        //   - บันทึก audit log (success + fail)
+        //   - ป้องกันกดซ้อนด้วย in-flight Set (ต่อ process)
+        //   - ห้ามส่ง PEXELS_API_KEY กลับ frontend
+        const refreshMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/refresh-image$/);
+        if (req.method === "POST" && refreshMatch) {
+          const id = decodeURIComponent(refreshMatch[1]);
+          const item = repo.getById(id);
+          if (!item) return json(res, 404, { error: "news_not_found" });
+          const body = await readJson(req).catch(() => ({}));
+          if (!body.reviewer) {
+            return json(res, 400, { error: "reviewer_required" });
+          }
+          const reviewer = String(body.reviewer).slice(0, 80);
+          const runId = "img-refresh-" + randomUUID();
+
+          // ป้องกันกดซ้อน: ถ้า id นี้กำลัง refresh อยู่ → 409
+          if (imageRefreshInFlight.has(id)) {
+            return json(res, 409, { error: "image_refresh_in_progress" });
+          }
+          imageRefreshInFlight.add(id);
+
+          // ต้องปลด lock เสมอ แม้ repository/audit เกิด exception ระหว่างทาง
+          try {
+
+          // เก็บสำเนา image เดิมก่อน refresh (เผื่อ rollback เมื่อ fail)
+          const previousImage = {
+            imageUrl: item.imageUrl,
+            imageSource: item.imageSource,
+            imageAuthor: item.imageAuthor,
+            imageAuthorUrl: item.imageAuthorUrl,
+            imageLicense: item.imageLicense,
+            imageSourceUrl: item.imageSourceUrl,
+            imageSearchKeywords: item.imageSearchKeywords,
+            imageStatus: item.imageStatus,
+            imageReviewRequired: item.imageReviewRequired,
+          };
+
+          let result;
+          const hasMock = typeof options._imageSearchFn === "function";
+          try {
+            result = await findImageForNews(item, {
+              _mockSearchFn: hasMock ? options._imageSearchFn : undefined,
+              // mock ไม่ต้อง rate-limit (เร็วใน test); จริงใช้ default delayMs จาก config
+              delayMs: hasMock ? 0 : undefined,
+            });
+          } catch (err) {
+            if (auditRepo) {
+              auditRepo.append({
+                runId,
+                newsId: id,
+                stage: "image_refresh_failed",
+                status: "error",
+                reason: "pipeline_exception",
+                metadata: { reviewer, message: String(err.message || err).slice(0, 200) },
+              });
+            }
+            return json(res, 502, {
+              error: "image_refresh_failed",
+              message: String(err.message || err).slice(0, 300),
+            });
+          }
+
+          // ถ้า Pexels ไม่ได้รูปที่พร้อมใช้ (fallback/failed) ห้ามเขียนทับรูปเดิม
+          if (result.status !== "selected") {
+            if (auditRepo) {
+              auditRepo.append({
+                runId,
+                newsId: id,
+                stage: "image_refresh_failed",
+                status: "error",
+                reason: result.status === "fallback" ? "pexels_no_usable_image" : "pexels_unavailable",
+                metadata: { reviewer, keptPreviousImage: !!previousImage.imageUrl },
+              });
+            }
+            const stillItem = repo.getById(id);
+            return json(res, 200, {
+              ok: true,
+              id,
+              keptPreviousImage: true,
+              image: publicImageOf(stillItem),
+            });
+          }
+
+          // อัปเดตเฉพาะ image fields + credit (repo.updateImage ไม่แต๊ะ validation/publish/เนื้อหา)
+          const imageMeta = {
+            imageUrl: result.imageUrl,
+            imageSource: result.imageSource,
+            imageAuthor: result.imageAuthor,
+            imageAuthorUrl: result.imageAuthorUrl,
+            imageLicense: result.imageLicense,
+            imageSourceUrl: result.imageSourceUrl,
+            imageSearchKeywords: result.imageSearchKeywords || [],
+            imageStatus: result.status,
+            imageReviewRequired: !!result.reviewRequired,
+          };
+          repo.updateImage(id, imageMeta);
+          const updated = repo.getById(id);
+          if (auditRepo) {
+            auditRepo.append({
+              runId,
+              newsId: id,
+              stage: "image_refresh_completed",
+              status: "ok",
+              reason: result.status,
+              metadata: {
+                reviewer,
+                imageSource: result.imageSource,
+                imageStatus: result.status,
+                imageReviewRequired: !!result.reviewRequired,
+              },
+            });
+          }
+          return json(res, 200, {
+            ok: true,
+            id,
+            image: publicImageOf(updated),
+          });
+          } finally {
+            imageRefreshInFlight.delete(id);
+          }
+        }
+        // (legacy alias: /refetch-image → เด้งต่อไปยัง refresh-image เพื่อ backward-compat)
+        // รักษาไว้ชั่วคราว; frontend ใหม่ใช้ /refresh-image
         const reviewMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/review$/);
         if (req.method === "POST" && reviewMatch) {
           const id = decodeURIComponent(reviewMatch[1]);

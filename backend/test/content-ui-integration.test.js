@@ -181,6 +181,50 @@ test("Content Management UI Integration — full flow", async () => {
     // admin.js checkSessionAndRender → ตรวจ cookie → authenticated → dashboard
     // (cookie มีอยู่แล้วจาก login API จึงไม่ต้องผ่าน form login)
     const dashboard = await waitForDashboard(W);
+    const initialActivity = W.document.getElementById("adminActivityPanel");
+    assert.ok(initialActivity, "dashboard must render the operation status panel");
+    assert.match(initialActivity.textContent, /สถานะการทำงาน/);
+
+    const refreshNewsBtn = W.document.getElementById("adminRefreshNewsBtn");
+    assert.ok(refreshNewsBtn, "refresh news button must exist");
+    refreshNewsBtn.dispatchEvent(new W.Event("click", { bubbles: true }));
+    assert.equal(refreshNewsBtn.disabled, true, "clicked action must disable while request is running");
+    assert.match(W.document.getElementById("adminActivityPanel").textContent, /กำลังทำงาน/);
+    await wait(350);
+    const completedActivity = W.document.getElementById("adminActivityPanel");
+    assert.match(completedActivity.textContent, /รีเฟรชสำเร็จ/);
+    assert.ok(W.document.getElementById("adminRefreshNewsBtn")?.disabled === false, "button must be enabled after completion");
+
+    // ดึงข่าวใหม่ต้องแสดงสถานะระหว่างทำงานและสรุปใหม่/ซ้ำ/รอตรวจ/ล้มเหลวเมื่อจบ
+    const realAdminFetch = W.fetch;
+    W.fetch = async (url, init = {}) => {
+      if (String(url).endsWith("/api/admin/run")) {
+        await wait(40);
+        return new Response(JSON.stringify({
+          digestItems: 9,
+          opened: 6,
+          saved: 2,
+          existing: 3,
+          duplicates: 1,
+          needsReview: 1,
+          failed: 0,
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      return realAdminFetch(url, init);
+    };
+    const fetchNewsBtn = W.document.getElementById("adminFetchBtn");
+    fetchNewsBtn.dispatchEvent(new W.Event("click", { bubbles: true }));
+    assert.equal(fetchNewsBtn.disabled, true, "fetch news button must disable while the pipeline is running");
+    assert.match(W.document.getElementById("adminActivityPanel").textContent, /กำลังอ่านรายการต้นทาง/);
+    await wait(200);
+    const fetchResultText = W.document.getElementById("adminActivityPanel").textContent;
+    assert.match(fetchResultText, /บันทึกใหม่ 2/);
+    assert.match(fetchResultText, /ซ้ำกับระบบ 3/);
+    assert.match(fetchResultText, /ซ้ำระหว่างประมวลผล 1/);
+    assert.match(fetchResultText, /รอตรวจ 1/);
+    assert.match(fetchResultText, /ล้มเหลว 0/);
+    assert.ok(W.document.getElementById("adminFetchBtn")?.disabled === false, "fetch news button must re-enable after completion");
+    W.fetch = realAdminFetch;
     assert.ok(dashboard, "dashboard ต้อง render หลัง login (cookie session ถูกตรวจสำเร็จ)");
 
     // ตรวจว่ามี section "จัดการเนื้อหาเว็บไซต์"

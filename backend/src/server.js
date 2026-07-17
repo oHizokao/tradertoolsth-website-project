@@ -139,6 +139,20 @@ function stopAutoPilotScheduler() {
 if (config.scheduler.enabled) scheduler.start();
 if (config.autoPilot.enabled) startAutoPilotScheduler();
 
+// RUN_ON_START (requirement ข้อ 4): ดึงข่าว 1 รอบตอน backend boot
+// แยกอิสระจาก SCHEDULER_ENABLED:
+//   - SCHEDULER_ENABLED → ดึงข่าวทุก 60 นาที
+//   - RUN_ON_START → ดึงข่าว 1 รอบทันทีตอน boot (ไม่ auto-publish)
+//   - AUTO_PILOT_ENABLED → ดึง + เผยแพร่ตามรอบอัตโนมัติ
+// trigger เฉพาะเมื่อยังไม่ได้ trigger ผ่าน scheduler.start() (กัน double-fetch)
+if (config.scheduler.runOnStart && !config.scheduler.enabled) {
+  log.info("RUN_ON_START=true → triggering one-shot news fetch (no auto-publish)");
+  updater
+    .run({ autoPublish: false })
+    .then((r) => log.info(`RUN_ON_START complete: saved=${r.saved} published=${r.published} failed=${r.failed}`))
+    .catch((err) => log.error(`RUN_ON_START failed: ${err.message}`));
+}
+
 // Phase 12 — Economic Calendar: scheduler + initial sync
 // sync อัตโนมัติทุก syncIntervalSeconds (default 300 = 5 นาที)
 // initial sync รอบแรกเพื่อให้มีข้อมูลทันที (ถ้ายังไม่มี cache)
