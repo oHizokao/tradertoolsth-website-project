@@ -163,8 +163,21 @@
       el.innerHTML = `<div class="state"><div class="state__title">เลือกสินทรัพย์เพื่อดูรายละเอียด</div></div>`;
       return;
     }
+    
+    // ตรวจสอบว่ามีข้อมูล Sentiment จาก Myfxbook หรือไม่ (คู่เงินหลัก, ทอง, เงิน)
+    const isSupportedSentiment = /USD|EUR|GBP|JPY|XAU|XAG/.test(item.symbol) && item.symbol !== "DXY";
+    const sentimentHtml = isSupportedSentiment ? `
+      <section class="market-related">
+        <h3>📊 Community Outlook</h3>
+        <div style="border-radius: 8px; overflow: hidden; background: #fff; margin-top: 12px; height: 160px;">
+          <iframe src="https://widgets.myfxbook.com/widgets/outlook.html?symbol=${esc(item.symbol)}" width="100%" height="160" frameborder="0" scrolling="no" allowtransparency="true"></iframe>
+        </div>
+      </section>
+    ` : "";
+
     el.innerHTML = `<div class="market-detail__head"><div><span>${esc(LABELS[item.symbol] || item.symbol)}</span><h2>${esc(item.symbol)}</h2></div><strong>${formatPrice(item.price)}</strong></div>
       <dl class="market-stats"><div><dt>เปลี่ยนแปลง</dt><dd>${Number.isFinite(item.change) ? item.change.toFixed(4) : "—"}</dd></div><div><dt>เปอร์เซ็นต์</dt><dd>${Number.isFinite(item.changePercent) ? `${item.changePercent.toFixed(2)}%` : "—"}</dd></div><div><dt>แหล่งข้อมูล</dt><dd>${esc(item.source || "ระบบตลาด")}</dd></div></dl>
+      ${sentimentHtml}
       <section class="market-related"><h3>ข่าวล่าสุด</h3>${state.extras.news.length ? state.extras.news.map((n) => `<a href="news-detail.html?slug=${encodeURIComponent(n.slug || n.id || "")}">${esc(n.title || "ข่าวตลาด")}</a>`).join("") : `<p>ยังไม่มีข่าวที่เกี่ยวข้อง</p>`}</section>
       <section class="market-related"><h3>เหตุการณ์เศรษฐกิจ</h3>${state.extras.events.length ? state.extras.events.map((e) => `<div><strong>${esc(e.currency)}</strong><span>${esc(e.eventName)}</span><small>${formatTime(e.scheduledAtUtc)}</small></div>`).join("") : `<p>ยังไม่มีเหตุการณ์ที่เกี่ยวข้อง</p>`}</section>`;
   }

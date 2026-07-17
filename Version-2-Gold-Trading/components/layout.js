@@ -269,7 +269,7 @@ TT.layout = (function () {
         : "1,8 41,8";
     const label = TT.h.esc(t.label || t.symbol);
     const symbol = TT.h.esc(t.symbol);
-    return `<span class="ticker-tape__item" data-dir="${dirClass}">
+    return `<a href="signal.html?symbol=${symbol}" class="ticker-tape__item ticker-link" data-dir="${dirClass}">
       <span class="ticker-tape__status ticker-tape__status--${dirClass}" aria-hidden="true"></span>
       <span class="pair" title="${label}">${symbol}<span class="ticker-tape__label-sm">${label}</span></span>
       <span class="ticker-tape__price">${TT.h.esc(fmtPrice(t.price))}</span>
