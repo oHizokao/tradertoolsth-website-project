@@ -250,6 +250,10 @@
   position: relative;
 }
 
+.nav-links .nav-mobile-only {
+  display: none;
+}
+
 .nav-toggle span,
 .nav-toggle span::before,
 .nav-toggle span::after {
@@ -285,6 +289,21 @@ body.nav-open .nav-toggle span::after {
   transform: translate(-50%, -50%) rotate(-45deg);
 }
 
+/* ---------- Compact nav ก่อนเข้า mobile drawer (กันล้น) ---------- */
+@media (max-width: 1220px) {
+  .nav-links {
+    gap: 0;
+  }
+  .nav-links a {
+    padding: 0.5rem 0.62rem;
+    font-size: 13px;
+  }
+  .nav-links a.is-active::after {
+    left: 0.62rem;
+    right: 0.62rem;
+  }
+}
+
 /* ---------- Mobile drawer ---------- */
 @media (max-width: 1024px) {
   .nav-toggle {
@@ -299,9 +318,8 @@ body.nav-open .nav-toggle span::after {
     display: none;
   }
 
-  /* บนมือถือเก็บ signup ไว้ */
-  .nav-actions .btn--teal.btn--sm {
-    display: inline-flex;
+  .nav-links .nav-mobile-only {
+    display: flex;
   }
 
   .nav-links {
@@ -364,6 +382,12 @@ body.nav-open .nav-toggle span::after {
   }
 
   .nav-item--has-drop .chevron {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav-actions .nav-icon-btn[aria-label="ค้นหา"] {
     display: none;
   }
 }

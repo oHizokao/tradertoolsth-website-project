@@ -104,8 +104,12 @@ export async function findImageForNews(news, opts = {}) {
   log.info(`image search: ${keywords.length} keywords for "${(news.originalTitle || "").slice(0, 60)}"`);
 
   if (!config.pexels?.apiKey && typeof opts._mockSearchFn !== "function") {
-    log.info("Pexels key unavailable; using owned TraderToolsTH artwork");
-    return makeOwnedPlaceholder(news, keywords);
+    // QC (requirement ข้อ 2): ห้ามแอบตั้งรูปสำรองเป็น selected แล้วถือว่าพร้อมเผยแพร่
+    // เมื่อไม่มี Pexels API key → status=fallback + reviewRequired=true
+    // (ไม่ใช่ makeOwnedPlaceholder ที่ตั้ง selected/reviewRequired=false)
+    // makeOwnedPlaceholder สงวนไว้สำหรับ admin manual review เท่านั้น (คนเลือกเอง)
+    log.info("Pexels key unavailable; using fallback image with reviewRequired=true");
+    return makeFallbackResult(keywords);
   }
 
   // ---- 2) ค้นหาทุก keyword, รวม photos ----

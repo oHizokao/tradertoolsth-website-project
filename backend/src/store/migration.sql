@@ -176,3 +176,270 @@ CREATE TABLE IF NOT EXISTS calendar_sync_meta (
   source_name TEXT,
   updated_at TEXT NOT NULL
 );
+
+-- ============================================================
+-- Phase 15 — Community Forum (แยกจาก Content Management Phase 14)
+-- ------------------------------------------------------------
+-- แยกจากระบบข่าว / auto pilot / calendar / market / content ทั้งหมด
+-- กฎ QC:
+--   - ทุก query ใช้ parameterized (? placeholders) เท่านั้น
+--   - moderation status แยกจาก content เสมอ
+--   - soft delete (deleted_at) ไม่ใช่ hard delete (กันข้อมูลหาย + audit)
+--   - identity เริ่มต้นเป็น guest profile (ย้ายไป account จริงในอนาคตได้)
+--   - idempotent: CREATE ... IF NOT EXISTS ทั้งหมด รันซ้ำได้
+-- ============================================================
+
+-- forum_authors: identity ของผู้โพสต์
+--   - kind='guest' (default) หรือ 'account' (อนาคต)
+--   - display_name ใช้แสดงผล; anon_token ใช้เชื่อมโยงเฉพาะใน browser
+--     (ส่งกลับครั้งเดียวตอนสร้าง ไม่เปิดเผยใน API อื่น)
+CREATE TABLE IF NOT EXISTS forum_authors (
+  id TEXT PRIMARY KEY,                    -- 'fa-' + hash16
+  anon_token TEXT NOT NULL UNIQUE,        -- token ลับของ guest (hash)
+  display_name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'guest',     -- 'guest' | 'account'
+  account_id TEXT,                        -- อ้างอิงเมื่อ upgrade เป็น account จริง
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_forum_authors_anon_token ON forum_authors(anon_token);
+
+-- forum_categories: หมวดหมู่ (seed 5 หมวดจาก Codex)
+--   - slug เป็น identity ภายใน; name/description ใช้แสดงผล
+--   - sort_order กำหนดลำดับการ์ดหมวดบนหน้า forum
+CREATE TABLE IF NOT EXISTS forum_categories (
+  slug TEXT PRIMARY KEY,                  -- 'ea-indicator', 'tricks', ...
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  icon TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_marketplace INTEGER NOT NULL DEFAULT 0, -- 0/1 — ใช่ห้องซื้อขาย
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- forum_topics: กระทู้ (มีโพสต์แรกฝังในตารางนี้เอง)
+--   - author_id → forum_authors.id
+--   - category_slug → forum_categories.slug
+--   - moderation: 'visible' | 'hidden' | 'deleted'
+--   - reply_count / last_activity_at อัปเดตทุกครั้งที่มี reply (เรียงกระทู้)
+CREATE TABLE IF NOT EXISTS forum_topics (
+  id TEXT PRIMARY KEY,                    -- 'ft-' + hash16
+  category_slug TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,                     -- plain text (sanitized)
+  is_marketplace INTEGER NOT NULL DEFAULT 0,
+  moderation TEXT NOT NULL DEFAULT 'visible',
+  pinned INTEGER NOT NULL DEFAULT 0,
+  view_count INTEGER NOT NULL DEFAULT 0,
+  reply_count INTEGER NOT NULL DEFAULT 0,
+  last_activity_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  FOREIGN KEY (category_slug) REFERENCES forum_categories(slug),
+  FOREIGN KEY (author_id) REFERENCES forum_authors(id)
+);
+CREATE INDEX IF NOT EXISTS idx_forum_topics_category ON forum_topics(category_slug);
+CREATE INDEX IF NOT EXISTS idx_forum_topics_moderation ON forum_topics(moderation);
+CREATE INDEX IF NOT EXISTS idx_forum_topics_last_activity ON forum_topics(last_activity_at);
+CREATE INDEX IF NOT EXISTS idx_forum_topics_author ON forum_topics(author_id);
+
+-- forum_posts: คำตอบ/ตอบกลับในกระทู้
+--   - topic_id → forum_topics.id
+--   - author_id → forum_authors.id
+--   - moderation: 'visible' | 'hidden' | 'deleted'
+CREATE TABLE IF NOT EXISTS forum_posts (
+  id TEXT PRIMARY KEY,                    -- 'fp-' + hash16
+  topic_id TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  body TEXT NOT NULL,                     -- plain text (sanitized)
+  moderation TEXT NOT NULL DEFAULT 'visible',
+  floor INTEGER NOT NULL,                 -- ลำดับคำตอบในกระทู้ (1, 2, 3 ...)
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  deleted_at TEXT,
+  FOREIGN KEY (topic_id) REFERENCES forum_topics(id),
+  FOREIGN KEY (author_id) REFERENCES forum_authors(id)
+);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_topic ON forum_posts(topic_id);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_moderation ON forum_posts(moderation);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_author ON forum_posts(author_id);
+CREATE INDEX IF NOT EXISTS idx_forum_posts_floor ON forum_posts(topic_id, floor);
+
+-- forum_attachments: metadata ของไฟล์แนบ (เก็บ metadata เท่านั้น ไม่เก็บ binary)
+--   - owner_type: 'topic' | 'post'
+--   - stored_path: path สัมพันธ์ภายใต้ data/forum/ (validated, กัน path traversal)
+--   - mime/extension whitelist (image/pdf/zip เท่านั้น; ห้าม executable)
+CREATE TABLE IF NOT EXISTS forum_attachments (
+  id TEXT PRIMARY KEY,                    -- 'fa-' + hash16
+  owner_type TEXT NOT NULL,               -- 'topic' | 'post'
+  owner_id TEXT NOT NULL,
+  author_id TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,              -- ชื่อไฟล์ที่ generate (ไม่ใช่ชื่อผู้ใช้ส่ง)
+  stored_path TEXT NOT NULL,              -- relative path (validated)
+  mime_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_forum_attachments_owner ON forum_attachments(owner_type, owner_id);
+
+-- forum_reports: report/moderation queue
+--   - target_type: 'topic' | 'post'
+--   - target_id → forum_topics.id หรือ forum_posts.id
+--   - status: 'open' | 'reviewed' | 'dismissed'
+CREATE TABLE IF NOT EXISTS forum_reports (
+  id TEXT PRIMARY KEY,                    -- 'fr-' + hash16
+  target_type TEXT NOT NULL,              -- 'topic' | 'post'
+  target_id TEXT NOT NULL,
+  reporter_id TEXT,                       -- author ของผู้แจ้ง (อาจ NULL = ไม่ระบุตัว)
+  reason TEXT NOT NULL,                   -- sanitized, capped
+  status TEXT NOT NULL DEFAULT 'open',    -- 'open' | 'reviewed' | 'dismissed'
+  created_at TEXT NOT NULL,
+  reviewed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_forum_reports_status ON forum_reports(status);
+CREATE INDEX IF NOT EXISTS idx_forum_reports_target ON forum_reports(target_type, target_id);
+
+-- ============================================================
+-- Phase 14 — Content Management tables
+-- ------------------------------------------------------------
+-- กฎ QC (ตามที่ Codex กำหนด):
+--   - แยกตารางออกจาก news/calendar โดยสมบูรณ์ (ไม่กระทบเดิม)
+--   - id/slug UNIQUE (slug ใช้ใน public URL)
+--   - status = 'draft' | 'published' (publish gate อยู่ฝั่ง repository)
+--   - เก็บ metadata ของไฟล์/รูป (path + size + mime) — ไม่เก็บไฟล์เองใน DB
+--   - ห้ามเก็บ secret/token ใดๆ ในตารางเหล่านี้
+--   - idempotent: CREATE ... IF NOT EXISTS ทั้งหมด รันซ้ำได้
+-- ============================================================
+
+-- ---- EA products (Expert Advisors) ----
+CREATE TABLE IF NOT EXISTS ea_products (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT,
+  version TEXT,
+  platform TEXT,                        -- 'mt4' | 'mt5' | 'both'
+  price REAL NOT NULL DEFAULT 0,
+  type TEXT NOT NULL DEFAULT 'free',     -- 'free' | 'paid'
+  file_path TEXT,                       -- relative path ใต้ uploads (ไม่เก็บ absolute)
+  file_name TEXT,                       -- ชื่อไฟล์ safe ที่ rename แล้ว
+  file_size INTEGER,
+  file_mime TEXT,
+  cover_image TEXT,                     -- relative path ใต้ uploads
+  status TEXT NOT NULL DEFAULT 'draft', -- 'draft' | 'published'
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ea_status ON ea_products(status);
+CREATE INDEX IF NOT EXISTS idx_ea_type ON ea_products(type);
+CREATE INDEX IF NOT EXISTS idx_ea_sort ON ea_products(sort_order);
+
+-- ---- Knowledge articles ----
+CREATE TABLE IF NOT EXISTS knowledge_articles (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  excerpt TEXT,
+  body TEXT,                            -- JSON array ของ blocks (p/h2/ul/ol)
+  category TEXT,
+  read_minutes INTEGER,
+  cover_image TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_kb_status ON knowledge_articles(status);
+CREATE INDEX IF NOT EXISTS idx_kb_category ON knowledge_articles(category);
+CREATE INDEX IF NOT EXISTS idx_kb_slug ON knowledge_articles(slug);
+
+-- ---- FAQ ----
+CREATE TABLE IF NOT EXISTS faq_items (
+  id TEXT PRIMARY KEY,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  category TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_faq_status ON faq_items(status);
+CREATE INDEX IF NOT EXISTS idx_faq_sort ON faq_items(sort_order);
+
+-- ---- Broker reviews ----
+CREATE TABLE IF NOT EXISTS broker_reviews (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  short_name TEXT,
+  overview TEXT,
+  rating REAL,
+  score REAL,
+  logo_color TEXT,
+  license TEXT,
+  regulation TEXT,                      -- JSON array
+  spread TEXT,
+  commission TEXT,
+  deposit_withdraw TEXT,
+  platform TEXT,                        -- JSON array
+  min_deposit INTEGER,
+  pros TEXT,                            -- JSON array
+  cons TEXT,                            -- JSON array
+  suitable_for TEXT,
+  affiliate_disclosure TEXT,
+  reference_url TEXT,
+  cover_image TEXT,
+  reviewed_at TEXT,                     -- วันที่ตรวจสอบล่าสุด
+  status TEXT NOT NULL DEFAULT 'draft',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  published_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_broker_status ON broker_reviews(status);
+CREATE INDEX IF NOT EXISTS idx_broker_slug ON broker_reviews(slug);
+CREATE INDEX IF NOT EXISTS idx_broker_sort ON broker_reviews(sort_order);
+
+-- ============================================================
+-- Phase 16 — Public EA Submissions
+-- ตารางแยกจาก ea_products: เก็บรายการที่ผู้ใช้ทั่วไปส่งเข้ามา
+-- รอ admin ตรวจสอบก่อนโอนไป ea_products (status=published ได้)
+-- กฎ QC (safety):
+--   - ไม่มีคอลัมน์ price (public submit บังคับฟรีเสมอ — admin กำหนดราคาทีหลังได้ที่ ea_products)
+--   - status ถูก CHECK constraint บังคับเป็น pending_review/approved/rejected/migrated
+--   - file_path/cover_path เก็บ relative path ใต้ uploads เท่านั้น (defense-in-depth คู่กับ uploadService)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ea_submissions (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT,
+  version TEXT NOT NULL,
+  platform TEXT NOT NULL,                 -- 'mt4' | 'mt5' | 'both'
+  strategy TEXT,                          -- optional — ประเภทกลยุทธ์
+  contact_name TEXT,                      -- ชื่อผู้ส่ง (optional)
+  contact_email TEXT,                     -- อีเมลติดต่อ (optional)
+  ea_file_path TEXT NOT NULL,             -- relative path ใต้ uploads (rename แล้ว)
+  ea_file_name TEXT,                      -- ชื่อไฟล์ safe
+  ea_file_size INTEGER,
+  ea_file_mime TEXT,
+  cover_image_path TEXT,                  -- relative path ใต้ uploads (optional)
+  submitter_ip TEXT,                      -- IP ผู้ส่ง (สำหรับ rate limit + audit)
+  status TEXT NOT NULL DEFAULT 'pending_review'
+    CHECK (status IN ('pending_review','approved','rejected','migrated')),
+  reviewer_notes TEXT,                    -- หมายเหตุ admin (กรณี reject)
+  reviewed_at TEXT,                       -- วันที่ admin ตัดสินใจ
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ea_submission_status ON ea_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_ea_submission_created ON ea_submissions(created_at DESC);

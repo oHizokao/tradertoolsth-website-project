@@ -117,7 +117,11 @@ test("1. login valid → 200 + HttpOnly + SameSite cookie", async () => {
     assert.ok(r.setCookie, "ต้องมี Set-Cookie");
     assert.match(r.setCookie, /HttpOnly/i);
     assert.match(r.setCookie, /SameSite=Strict/i);
-    assert.match(r.setCookie, /Path=\/api\/admin\/auto-pilot/i);
+    assert.match(r.setCookie, /Path=\/api\/admin/i);
+    // Phase 16: Path ขยายจาก /api/admin/auto-pilot → /api/admin
+    // เพื่อให้ cookie ครอบคลุม content API ด้วย (ไม่ใช่ auto-pilot-only)
+    assert.equal(/Path=\/api\/admin\/auto-pilot/i.test(r.setCookie), false,
+      "Path ต้องไม่ใช่ /api/admin/auto-pilot อีกต่อไป");
     assert.match(r.setCookie, /Max-Age=28800/i);
   } finally {
     await s.close();

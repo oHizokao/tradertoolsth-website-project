@@ -1,4 +1,4 @@
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "./config/env.js";
 import { openDb, closeDb } from "./store/db.js";
@@ -8,6 +8,12 @@ import { createCalendarService, createCalendarScheduler } from "./calendar/calen
 import { createMarketService, createMarketScheduler } from "./market/marketService.js";
 import { createAutoPilotRepository } from "./store/autoPilotRepository.js";
 import { createAuditRepository } from "./store/auditRepository.js";
+import { createContentRepositories } from "./store/contentRepository.js";
+import { createUploadService } from "./content/uploadService.js";
+import { createForumService } from "./forum/forumService.js";
+import { createEaSubmissionRepository } from "./ea/submissionRepository.js";
+import { createEaSubmissionService } from "./ea/eaSubmissionService.js";
+import { createRateLimiter } from "./forum/rateLimiter.js";
 import { createNewsUpdater } from "./pipeline/runNewsUpdate.js";
 import { createNewsScheduler } from "./scheduler/newsScheduler.js";
 import { createAutoPilot } from "./autopilot/autoPilot.js";
@@ -17,6 +23,7 @@ import { logger } from "./utils/logger.js";
 const log = logger.make("server");
 const here = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(here, "..", "..");
+const backendRoot = resolve(here, "..");
 const db = openDb();
 const repo = createNewsRepository(db);
 const calendarRepo = createCalendarRepository(db);
@@ -26,6 +33,55 @@ const marketService = createMarketService();
 const marketScheduler = createMarketScheduler(marketService);
 const apRepo = createAutoPilotRepository(db);
 const auditRepo = createAuditRepository(db);
+const contentRepos = createContentRepositories(db);
+// uploads dir: <backend>/uploads (gitignored, auto-created by uploadService)
+const uploadsRoot = join(backendRoot, "uploads");
+const uploadService = createUploadService({ uploadsRoot });
+// Phase 15 — Community Forum (แยกจาก content/news/auto-pilot)
+// forum upload dir: <backend>/data/forum (gitignored, auto-created by uploadStore)
+// ใช้ absolute path เพื่อให้ path-traversal check ใน uploadStore ทำงานถูก
+const forumUploadDir = config.forum.uploadDir.startsWith("/") ||
+  /^[a-zA-Z]:/.test(config.forum.uploadDir)
+  ? config.forum.uploadDir
+  : join(backendRoot, config.forum.uploadDir);
+const forumService = config.forum.enabled
+  ? createForumService({
+      db,
+      config: { ...config.forum, uploadDir: forumUploadDir },
+    })
+  : null;
+// Phase 16 — Public EA Submissions
+// repo แยกจาก contentRepos (ea_products) — เก็บ pending_review ก่อน admin ตรวจ
+// rate limiter ใช้ IP เป็น key: 1 ครั้ง/ช่วงพัก และไม่เกิน 3 ครั้ง/วัน
+const submissionRepo = createEaSubmissionRepository(db);
+const eaSubmissionRateLimiters = [
+  {
+    name: "cooldown",
+    limiter: createRateLimiter({
+      windowSeconds: config.eaSubmission.cooldownSeconds,
+      burst: 1,
+    }),
+  },
+  {
+    name: "daily",
+    limiter: createRateLimiter({
+      windowSeconds: 24 * 60 * 60,
+      burst: config.eaSubmission.dailyLimit,
+    }),
+  },
+];
+const eaSubmissionService = config.eaSubmission.enabled
+  ? createEaSubmissionService({
+      repo: submissionRepo,
+      uploadService,
+      rateLimiters: eaSubmissionRateLimiters,
+      config: {
+        nameMaxLength: config.eaSubmission.nameMaxLength,
+        descriptionMaxLength: config.eaSubmission.descriptionMaxLength,
+        versionMaxLength: config.eaSubmission.versionMaxLength,
+      },
+    })
+  : null;
 const ctx = { db, repo };
 const updater = createNewsUpdater(ctx);
 const scheduler = createNewsScheduler(updater);
@@ -38,10 +94,16 @@ const server = createHttpServer({
   auditRepo,
   calendarService,
   marketService,
+  contentRepos,
+  uploadService,
+  forumService,
+  submissionRepo,
+  eaSubmissionService,
   projectRoot,
   siteVersion: config.server.siteVersion,
   adminToken: config.server.adminToken,
   adminAllowedOrigins: config.server.adminAllowedOrigins,
+  trustProxy: config.server.trustProxy,
 });
 
 const address = await listen(server, {
@@ -77,6 +139,20 @@ function stopAutoPilotScheduler() {
 if (config.scheduler.enabled) scheduler.start();
 if (config.autoPilot.enabled) startAutoPilotScheduler();
 
+// RUN_ON_START (requirement ข้อ 4): ดึงข่าว 1 รอบตอน backend boot
+// แยกอิสระจาก SCHEDULER_ENABLED:
+//   - SCHEDULER_ENABLED → ดึงข่าวทุก 60 นาที
+//   - RUN_ON_START → ดึงข่าว 1 รอบทันทีตอน boot (ไม่ auto-publish)
+//   - AUTO_PILOT_ENABLED → ดึง + เผยแพร่ตามรอบอัตโนมัติ
+// trigger เฉพาะเมื่อยังไม่ได้ trigger ผ่าน scheduler.start() (กัน double-fetch)
+if (config.scheduler.runOnStart && !config.scheduler.enabled) {
+  log.info("RUN_ON_START=true → triggering one-shot news fetch (no auto-publish)");
+  updater
+    .run({ autoPublish: false })
+    .then((r) => log.info(`RUN_ON_START complete: saved=${r.saved} published=${r.published} failed=${r.failed}`))
+    .catch((err) => log.error(`RUN_ON_START failed: ${err.message}`));
+}
+
 // Phase 12 — Economic Calendar: scheduler + initial sync
 // sync อัตโนมัติทุก syncIntervalSeconds (default 300 = 5 นาที)
 // initial sync รอบแรกเพื่อให้มีข้อมูลทันที (ถ้ายังไม่มี cache)
@@ -104,6 +180,7 @@ log.info(`admin: http://${shownHost}:${address.port}/Version-2-Gold-Trading/admi
 log.info(`Auto Pilot: env=${config.autoPilot.enabled ? "allowed" : "off"} (DB setting ควบคุมการรันจริง)`);
 log.info(`Economic Calendar: ${config.calendar.enabled ? "enabled" : "off"} (sync ทุก ${config.calendar.syncIntervalSeconds}s)`);
 log.info(`Market Ticker: ${config.market.enabled ? "enabled" : "off"} (cache ${config.market.cacheSeconds}s, sync ทุก ${config.market.syncIntervalSeconds}s)`);
+log.info(`Community Forum: ${config.forum.enabled ? "enabled" : "off"} (rate limit 1/${config.forum.rateLimitSeconds}s, burst ${config.forum.rateLimitBurst})`);
 
 let stopping = false;
 async function shutdown(signal) {

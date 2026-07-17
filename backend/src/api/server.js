@@ -1,13 +1,16 @@
 import { createServer } from "node:http";
-import { timingSafeEqual } from "node:crypto";
+import { timingSafeEqual, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { toPublicNews, publicCategory } from "./publicNews.js";
 import { createCalendarApiHandler } from "./calendarApi.js";
 import { createMarketApiHandler } from "./marketApi.js";
+import { createContentApiHandler } from "./contentApi.js";
+import { createForumApiHandler } from "./forumApi.js";
+import { createEaSubmissionApiHandler } from "../ea/eaSubmissionApi.js";
 import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
 import { validateRewritten } from "../ai/validator.js";
-import { makeOwnedPlaceholder } from "../image/imagePipeline.js";
+import { makeOwnedPlaceholder, findImageForNews } from "../image/imagePipeline.js";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -21,7 +24,25 @@ const MIME = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  // upload file types (served via controlled handler, not static dir)
+  ".ex4": "application/octet-stream",
+  ".ex5": "application/octet-stream",
+  ".set": "text/plain; charset=utf-8",
+  ".zip": "application/zip",
 };
+
+// upload file types that may be served publicly (read-only, path-traversal safe)
+const UPLOAD_SERVE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".svg",
+  ".ex4",
+  ".ex5",
+  ".set",
+  ".zip",
+]);
 
 function json(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -37,6 +58,31 @@ function json(res, status, payload) {
 function clampInt(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+/**
+ * ใช้สำหรับป้องกันการกด refresh-image ซ้อน (per process).
+ * Set ของ news id ที่กำลัง refresh รูปอยู่.
+ */
+const imageRefreshInFlight = new Set();
+
+/**
+ * สกัด image fields สาธารณะจาก news object เพื่อส่งกลับ frontend.
+ * ห้ามส่ง internal fields (validation/publish/duplicateHash) หรือ secret ใดๆ.
+ */
+function publicImageOf(item) {
+  if (!item) return null;
+  return {
+    imageUrl: item.imageUrl || null,
+    imageSource: item.imageSource || null,
+    imageAuthor: item.imageAuthor || null,
+    imageAuthorUrl: item.imageAuthorUrl || null,
+    imageLicense: item.imageLicense || null,
+    imageSourceUrl: item.imageSourceUrl || null,
+    imageStatus: item.imageStatus || null,
+    imageReviewRequired: !!item.imageReviewRequired,
+    imageSearchKeywords: Array.isArray(item.imageSearchKeywords) ? item.imageSearchKeywords : [],
+  };
 }
 
 function isAuthorized(req, token) {
@@ -138,11 +184,15 @@ function isOriginAllowed(req, allowedOrigins = []) {
 }
 
 /** สร้าง Set-Cookie value สำหรับ admin_session */
+// NOTE: Phase 16 — เปลี่ยน Path จาก /api/admin/auto-pilot → /api/admin
+// เพื่อให้ cookie ครอบคลุม Content API (/api/admin/content/*) และ EA Submission
+// admin (/api/admin/ea-submissions/*) ด้วย ยังคง HttpOnly + SameSite=Strict
+// CSRF/Origin protection ยังตรวจทุก state-changing request อยู่ (ไม่พึ่ง cookie เดียว)
 function buildAdminCookie(token, { secure, maxAge = 28800 }) {
   const parts = [
     `${ADMIN_COOKIE_NAME}=${token}`,
     "HttpOnly",
-    "Path=/api/admin/auto-pilot",
+    "Path=/api/admin",
     `Max-Age=${maxAge}`,
     "SameSite=Strict",
   ];
@@ -152,7 +202,7 @@ function buildAdminCookie(token, { secure, maxAge = 28800 }) {
 
 /** สร้าง Set-Cookie สำหรับ clear cookie (logout) */
 function buildClearAdminCookie({ secure }) {
-  const parts = [`${ADMIN_COOKIE_NAME}=`, "HttpOnly", "Path=/api/admin/auto-pilot", "Max-Age=0", "SameSite=Strict"];
+  const parts = [`${ADMIN_COOKIE_NAME}=`, "HttpOnly", "Path=/api/admin", "Max-Age=0", "SameSite=Strict"];
   if (secure) parts.push("Secure");
   return parts.join("; ");
 }
@@ -265,6 +315,46 @@ export function createRequestHandler(options) {
       })
     : null;
 
+  // Phase 14 — Content Management handler (public read + admin CRUD + uploads)
+  // สร้างครั้งเดียว ถ้า contentRepos และ uploadService ถูกส่งเข้ามา
+  const contentHandler =
+    options.contentRepos && options.uploadService
+      ? createContentApiHandler({
+          repos: options.contentRepos,
+          uploadService: options.uploadService,
+          json,
+          isAuthorizedAny,
+          isOriginAllowed,
+        })
+      : null;
+
+  // Phase 15 — Community Forum handler (public read + author CRUD + reports)
+  // แยกจาก content/news/auto-pilot โดยสมบูรณ์ — ใช้ identity เป็น guest anon token
+  // สร้างครั้งเดียว ถ้า forumService ถูกส่งเข้ามา
+  const forumHandler = options.forumService
+    ? createForumApiHandler({
+        forumService: options.forumService,
+        json,
+        isOriginAllowed,
+      })
+    : null;
+
+  // Phase 16 — Public EA Submission handler (public submit + admin review)
+  // แยกจาก admin Content CRUD อย่างชัดเจน — public endpoint ใช้ IP rate limit
+  // admin endpoints (list/reject/migrate) ใช้ cookie path=/api/admin
+  const eaSubmissionHandler =
+    options.eaSubmissionService && options.submissionRepo
+      ? createEaSubmissionApiHandler({
+          service: options.eaSubmissionService,
+          submissionRepo: options.submissionRepo,
+          contentRepos: options.contentRepos,
+          uploadService: options.uploadService,
+          json,
+          isAuthorizedAny,
+          isOriginAllowed,
+        })
+      : null;
+
   return async function requestHandler(req, res) {
     try {
       const url = new URL(req.url || "/", "http://localhost");
@@ -288,6 +378,75 @@ export function createRequestHandler(options) {
         if (handled === false && (pathname === "/api/market-ticker" || pathname === "/api/market-ticker/status")) {
           return json(res, 405, { error: "method_not_allowed" });
         }
+      }
+
+      // ===== Phase 14 — Content Management (public read + admin CRUD + uploads) =====
+      // ต้องอยู่ก่อน /api/admin/* blocks เพื่อให้ /api/admin/content/* และ
+      // /api/content/* ถูกจัดการโดย content handler
+      if (contentHandler) {
+        const handled = await contentHandler(req, res, url, options);
+        if (handled) return;
+      }
+
+      // ===== Phase 14 — Upload file serving (read-only, path-traversal safe) =====
+      // serve ไฟล์ที่ admin อัปโหลด (รูปปก, EA files) ผ่าน controlled handler
+      // ไม่ expose dir แบบ writable — มีเฉพาะ GET + ตรวจ path traversal
+      if (
+        req.method === "GET" &&
+        pathname.startsWith("/uploads/") &&
+        options.uploadService
+      ) {
+        const relPath = decodeURIComponent(pathname.slice("/uploads/".length));
+        const absPath = options.uploadService.resolvePublicPath(relPath);
+        if (!absPath) {
+          return json(res, 400, { error: "invalid_path" });
+        }
+        try {
+          const info = await stat(absPath);
+          if (!info.isFile()) return json(res, 404, { error: "not_found" });
+          const ext = extname(absPath).toLowerCase();
+          if (!UPLOAD_SERVE_EXTENSIONS.has(ext)) {
+            return json(res, 403, { error: "file_type_not_servable" });
+          }
+          const data = await readFile(absPath);
+          res.writeHead(200, {
+            "content-type": MIME[ext] || "application/octet-stream",
+            "content-length": data.length,
+            "cache-control": "public, max-age=3600",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(data);
+          return;
+        } catch {
+          return json(res, 404, { error: "not_found" });
+        }
+      }
+
+      // ===== Phase 15 — Community Forum =====
+      // ----------------------------------------------------------------
+      // 🔀 MERGE POINT (ต้องตรวจสอบเมื่อ merge): forum handler อยู่ที่นี่
+      //   - อยู่หลัง content/news/calendar/market blocks
+      //   - อยู่ก่อน /api/health, /api/news, /api/admin/* blocks
+      //   - ไม่ขัดแย้งกับ route อื่นเพราะ prefix ด้วย /api/forum/* เท่านั้น
+      //   - ถ้า forum disabled ใน config → forumService จะไม่ถูกส่งเข้ามา
+      //     (ดู src/server.js) และ block นี้จะถูกข้ามไป
+      // ----------------------------------------------------------------
+      if (forumHandler) {
+        const handled = await forumHandler(req, res, url, options);
+        if (handled) return;
+      }
+
+      // ===== Phase 16 — Public EA Submissions =====
+      // ----------------------------------------------------------------
+      // 🔀 MERGE POINT: ea submission handler อยู่ที่นี่
+      //   - POST /api/ea/submissions (public — rate limited + CSRF)
+      //   - GET/POST /api/admin/ea-submissions/* (admin — auth + cookie)
+      //   - อยู่ก่อน /api/admin/* generic block เพื่อให้ /api/admin/ea-submissions/*
+      //     ถูกจัดการโดย handler นี้ (admin auth check ทำใน handler เอง)
+      // ----------------------------------------------------------------
+      if (eaSubmissionHandler) {
+        const handled = await eaSubmissionHandler(req, res, url, options);
+        if (handled) return;
       }
 
       if (req.method === "GET" && pathname === "/api/health") {
@@ -482,10 +641,15 @@ export function createRequestHandler(options) {
           return json(res, 403, { error: "origin_not_allowed" });
         }
         if (req.method === "GET" && pathname === "/api/admin/news/counts") {
-          // stats สำหรับ Admin Dashboard: แยกตาม publish_status + validation_status
+          // stats สำหรับ Admin Dashboard: แยกตาม publish_status + validation_status + image_status
+          // (requirement ข้อ 5: แสดงผลการดึงข่าว — Pexels สำเร็จ/สำรอง/ล้มเหลว/ต้องตรวจ)
           return json(res, 200, {
             publishStatus: repo.countByPublishStatus(),
             validationStatus: repo.countByStatus(),
+            imageStatus: repo.countByImageStatus(),
+            pexelsSelected: repo.countPexelsImages(),
+            ownedFallback: repo.countOwnedFallbackImages(),
+            imageReviewRequired: repo.countImageReviewRequired(),
             total: repo.countAll(),
           });
         }
@@ -503,6 +667,8 @@ export function createRequestHandler(options) {
             aiConfidence: item.aiConfidence,
             imageStatus: item.imageStatus,
             imageReviewRequired: item.imageReviewRequired,
+            imageUrl: item.imageUrl || null,
+            imageSource: item.imageSource || null,
             sourceUrl: item.sourceUrl,
             sourceName: item.source,
             sourcePublishedAt: item.sourcePublishedAt,
@@ -516,6 +682,136 @@ export function createRequestHandler(options) {
           if (!item) return json(res, 404, { error: "news_not_found" });
           return json(res, 200, item);
         }
+        // ---- Image refresh (Pexels) สำหรับข่าวเดียว ----
+        // POST /api/admin/news/:id/refresh-image
+        //   body: { reviewer: string }
+        // กฎ QC:
+        //   - อัปเดตเฉพาะ image fields + image credit เท่านั้น
+        //   - ห้ามแก้หัวข้อ/เนื้อหา/validation_status/publish_status
+        //   - ถ้า Pexels ล้มเหลวทั้งหมด (status=failed) → ห้ามลบรูปเดิม (เก็บ cache)
+        //   - บันทึก audit log (success + fail)
+        //   - ป้องกันกดซ้อนด้วย in-flight Set (ต่อ process)
+        //   - ห้ามส่ง PEXELS_API_KEY กลับ frontend
+        const refreshMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/refresh-image$/);
+        if (req.method === "POST" && refreshMatch) {
+          const id = decodeURIComponent(refreshMatch[1]);
+          const item = repo.getById(id);
+          if (!item) return json(res, 404, { error: "news_not_found" });
+          const body = await readJson(req).catch(() => ({}));
+          if (!body.reviewer) {
+            return json(res, 400, { error: "reviewer_required" });
+          }
+          const reviewer = String(body.reviewer).slice(0, 80);
+          const runId = "img-refresh-" + randomUUID();
+
+          // ป้องกันกดซ้อน: ถ้า id นี้กำลัง refresh อยู่ → 409
+          if (imageRefreshInFlight.has(id)) {
+            return json(res, 409, { error: "image_refresh_in_progress" });
+          }
+          imageRefreshInFlight.add(id);
+
+          // ต้องปลด lock เสมอ แม้ repository/audit เกิด exception ระหว่างทาง
+          try {
+
+          // เก็บสำเนา image เดิมก่อน refresh (เผื่อ rollback เมื่อ fail)
+          const previousImage = {
+            imageUrl: item.imageUrl,
+            imageSource: item.imageSource,
+            imageAuthor: item.imageAuthor,
+            imageAuthorUrl: item.imageAuthorUrl,
+            imageLicense: item.imageLicense,
+            imageSourceUrl: item.imageSourceUrl,
+            imageSearchKeywords: item.imageSearchKeywords,
+            imageStatus: item.imageStatus,
+            imageReviewRequired: item.imageReviewRequired,
+          };
+
+          let result;
+          const hasMock = typeof options._imageSearchFn === "function";
+          try {
+            result = await findImageForNews(item, {
+              _mockSearchFn: hasMock ? options._imageSearchFn : undefined,
+              // mock ไม่ต้อง rate-limit (เร็วใน test); จริงใช้ default delayMs จาก config
+              delayMs: hasMock ? 0 : undefined,
+            });
+          } catch (err) {
+            if (auditRepo) {
+              auditRepo.append({
+                runId,
+                newsId: id,
+                stage: "image_refresh_failed",
+                status: "error",
+                reason: "pipeline_exception",
+                metadata: { reviewer, message: String(err.message || err).slice(0, 200) },
+              });
+            }
+            return json(res, 502, {
+              error: "image_refresh_failed",
+              message: String(err.message || err).slice(0, 300),
+            });
+          }
+
+          // ถ้า Pexels ไม่ได้รูปที่พร้อมใช้ (fallback/failed) ห้ามเขียนทับรูปเดิม
+          if (result.status !== "selected") {
+            if (auditRepo) {
+              auditRepo.append({
+                runId,
+                newsId: id,
+                stage: "image_refresh_failed",
+                status: "error",
+                reason: result.status === "fallback" ? "pexels_no_usable_image" : "pexels_unavailable",
+                metadata: { reviewer, keptPreviousImage: !!previousImage.imageUrl },
+              });
+            }
+            const stillItem = repo.getById(id);
+            return json(res, 200, {
+              ok: true,
+              id,
+              keptPreviousImage: true,
+              image: publicImageOf(stillItem),
+            });
+          }
+
+          // อัปเดตเฉพาะ image fields + credit (repo.updateImage ไม่แต๊ะ validation/publish/เนื้อหา)
+          const imageMeta = {
+            imageUrl: result.imageUrl,
+            imageSource: result.imageSource,
+            imageAuthor: result.imageAuthor,
+            imageAuthorUrl: result.imageAuthorUrl,
+            imageLicense: result.imageLicense,
+            imageSourceUrl: result.imageSourceUrl,
+            imageSearchKeywords: result.imageSearchKeywords || [],
+            imageStatus: result.status,
+            imageReviewRequired: !!result.reviewRequired,
+          };
+          repo.updateImage(id, imageMeta);
+          const updated = repo.getById(id);
+          if (auditRepo) {
+            auditRepo.append({
+              runId,
+              newsId: id,
+              stage: "image_refresh_completed",
+              status: "ok",
+              reason: result.status,
+              metadata: {
+                reviewer,
+                imageSource: result.imageSource,
+                imageStatus: result.status,
+                imageReviewRequired: !!result.reviewRequired,
+              },
+            });
+          }
+          return json(res, 200, {
+            ok: true,
+            id,
+            image: publicImageOf(updated),
+          });
+          } finally {
+            imageRefreshInFlight.delete(id);
+          }
+        }
+        // (legacy alias: /refetch-image → เด้งต่อไปยัง refresh-image เพื่อ backward-compat)
+        // รักษาไว้ชั่วคราว; frontend ใหม่ใช้ /refresh-image
         const reviewMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/review$/);
         if (req.method === "POST" && reviewMatch) {
           const id = decodeURIComponent(reviewMatch[1]);

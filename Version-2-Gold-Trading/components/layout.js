@@ -1,6 +1,6 @@
 /* ============================================================
    Layout Components — Navbar + Footer + Ticker (v3)
-   Navy header with dropdown, login/signup; navy footer
+   Navy header with dropdown and contact/admin links; navy footer
    ============================================================ */
 
 window.TT = window.TT || {};
@@ -23,11 +23,13 @@ TT.layout = (function () {
     const toolsDrop = [
       { href: "market.html", label: "ภาพรวมตลาด" },
       { href: "calendar.html", label: "ปฏิทินเศรษฐกิจ" },
+      { href: "broker-tools.html", label: "เครื่องมือโบรกเกอร์" },
+      { href: "ea.html", label: "EA Hub" },
       { href: "faq.html", label: "คำถามที่พบบ่อย" },
     ];
     const toolsDropdown = `<div class="nav-item--has-drop">
       <a href="calendar.html" class="${
-        ["market", "calendar", "faq"].includes(activeKey) ? "is-active" : ""
+        ["market", "calendar", "faq", "ea", "broker-tools"].includes(activeKey) ? "is-active" : ""
       }" aria-haspopup="true">
         เครื่องมือ
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -48,7 +50,10 @@ TT.layout = (function () {
       <a href="signal.html" class="${activeKey === "signal" ? "is-active" : ""}" data-nav="signal">สัญญาณเทรด</a>
       <a href="news.html" class="${activeKey === "news" ? "is-active" : ""}" data-nav="news">ข่าวสาร</a>
       <a href="knowledge.html" class="${activeKey === "knowledge" ? "is-active" : ""}" data-nav="knowledge">บทวิเคราะห์</a>
-      <a href="brokers.html" class="${activeKey === "brokers" ? "is-active" : ""}" data-nav="brokers">โบรกเกอร์</a>`;
+      <a href="brokers.html" class="${activeKey === "brokers" ? "is-active" : ""}" data-nav="brokers">โบรกเกอร์</a>
+      <a href="forum.html" class="${activeKey === "forum" ? "is-active" : ""}" data-nav="forum">ฟอรัม</a>
+      <a href="contact.html" class="nav-mobile-only">ติดต่อเรา</a>
+      <a href="admin.html" class="nav-mobile-only">หลังบ้าน</a>`;
 
     return `<header class="navbar" id="navbar">
       <div class="container navbar__inner">
@@ -69,8 +74,8 @@ TT.layout = (function () {
           <button class="nav-icon-btn nav-theme-btn" aria-label="เปลี่ยนธีม">☾</button>
           <button class="nav-lang" aria-label="เปลี่ยนภาษา">TH</button>
           <span class="nav-divider"></span>
-          <a href="contact.html" class="btn btn--ghost-light btn--sm">เข้าสู่ระบบ</a>
-          <a href="contact.html" class="btn btn--teal btn--sm">สมัครสมาชิก</a>
+          <a href="contact.html" class="btn btn--ghost-light btn--sm">ติดต่อเรา</a>
+          <a href="admin.html" class="btn btn--teal btn--sm">หลังบ้าน</a>
           <button class="nav-toggle" id="navToggle" aria-label="เปิด/ปิดเมนู" aria-expanded="false" aria-controls="navLinks">
             <span></span>
           </button>
@@ -501,6 +506,10 @@ TT.layout = (function () {
    * เพื่อให้ ticker ปรากฏในทุกหน้าที่มี header — โดยไม่แตะ JS ของหน้านั้น
    */
   function initTicker() {
+    // opt-out: หน้าที่ติด class "no-ticker" จะไม่เริ่ม ticker
+    // (เช่น EA Hub — ไม่จำเป็นต้องโหลดราคา, กัน warning จาก fetch ที่อาจ fail)
+    if (document.body.classList.contains("no-ticker")) return;
+
     let root = document.getElementById("marketTicker");
 
     // Auto-inject: ถ้าหน้านี้ยังไม่มี ticker → สร้างและแทรกใต้ header

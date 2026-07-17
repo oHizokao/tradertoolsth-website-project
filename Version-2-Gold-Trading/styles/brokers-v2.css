@@ -1,0 +1,373 @@
+/* ============================================================
+   Broker pages (v2) — filters, compare, methodology, sources
+   ใช้ร่วมกับ components.css (badge/spec/alert) ที่มีอยู่เดิม
+   ============================================================ */
+
+/* ---------- Badge ghost (รองรับ regulation badges และ status รอตรวจสอบ) ---------- */
+.badge--ghost {
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+/* badge--gold สำหรับสถานะตรวจสอบบางส่วน */
+.badge--gold {
+  color: var(--gold-600);
+  background: var(--gold-50);
+  border: 1px solid var(--gold-100);
+}
+
+/* ---------- Controls (filter bar) ---------- */
+.broker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: var(--sp-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-4);
+}
+
+.broker-controls__filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  flex: 1 1 480px;
+}
+
+.broker-controls__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field__label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--fw-medium);
+}
+
+.field__input {
+  appearance: none;
+  width: 100%;
+  padding: 8px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transition: border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+
+.field__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Compare toggle (checkbox บนการ์ด) ---------- */
+.broker-compare-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.broker-compare__cb {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.broker-compare__mark {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  position: relative;
+  transition: background var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
+}
+
+.broker-compare__cb:checked + .broker-compare__mark {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.broker-compare__cb:checked + .broker-compare__mark::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 6px;
+  height: 11px;
+  border: solid var(--accent-contrast);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.broker-compare__cb:focus-visible + .broker-compare__mark {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* ---------- Compare floating bar ---------- */
+.broker-compare-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--navy-900);
+  color: var(--text-on-navy);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--sp-4);
+}
+
+.broker-compare-bar__info {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+.broker-compare-bar__info .text-muted {
+  color: var(--text-on-navy-soft);
+}
+
+.broker-compare-bar__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
+/* ---------- Compare table ---------- */
+.broker-compare-wrap .table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  min-width: 520px;
+}
+
+.compare-table th,
+.compare-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  min-width: 120px;
+}
+
+.compare-table thead th {
+  background: var(--surface-muted);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+.compare-table__label {
+  font-weight: var(--fw-medium);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.compare-cell__line {
+  margin-bottom: 4px;
+}
+
+/* ---------- Methodology (collapsible) ---------- */
+.methodology summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.methodology summary::-webkit-details-marker {
+  display: none;
+}
+
+.methodology__list {
+  margin: var(--sp-4) 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.methodology__item {
+  display: grid;
+  gap: 2px;
+}
+
+.methodology__item strong {
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- Broker detail: card section titles ---------- */
+.card-section__title {
+  color: var(--accent);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-widest);
+  font-weight: var(--fw-semibold);
+}
+
+/* ---------- Regulation list (detail) ---------- */
+.reg-list,
+.acct-list,
+.source-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.reg-item {
+  padding: var(--sp-3);
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.reg-item__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.reg-item__line {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+}
+
+.reg-item__links {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+}
+
+/* ---------- Account list (detail) ---------- */
+.acct-item {
+  padding: var(--sp-2) 0;
+  border-bottom: 1px dashed var(--border);
+}
+
+.acct-item:last-child {
+  border-bottom: none;
+}
+
+.acct-item__name {
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- Source list (detail) ---------- */
+.source-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-item:last-child {
+  border-bottom: none;
+}
+
+.source-item__field {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- Broker card: regulation row ---------- */
+.broker-card__regs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---------- Buttons sizes ที่ใช้ในหน้า ---------- */
+.btn--xs {
+  padding: 4px 10px;
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+   Responsive — Mobile
+   ============================================================ */
+@media (max-width: 880px) {
+  .broker-controls__filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .broker-controls {
+    padding: var(--sp-3);
+  }
+  .broker-controls__filters {
+    grid-template-columns: 1fr;
+  }
+  .broker-controls__meta {
+    justify-content: space-between;
+    width: 100%;
+  }
+  /* compare table scroll horizontal บนมือถือ */
+  .compare-table {
+    font-size: var(--fs-xs);
+  }
+  .compare-table th,
+  .compare-table td {
+    padding: 8px;
+  }
+  /* source list: ซ่อนคอลัมน์วันที่ไปอยู่ใต้ลิงก์ */
+  .source-item {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .source-item__field {
+    font-size: var(--fs-xs);
+  }
+}
+
+@media (max-width: 420px) {
+  .broker-card__specs {
+    grid-template-columns: 1fr !important;
+  }
+}

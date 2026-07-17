@@ -337,6 +337,47 @@ export function createNewsRepository(db) {
     return out;
   }
   /**
+   * นับข่าวแยกตาม image_status → { selected, fallback, failed }
+   * ใช้สำหรับ Admin Dashboard ให้เห็นภาพรวมของรูปข่าว (requirement ข้อ 5)
+   * - selected = ได้รูปจริงจาก Pexels (หรือ owned placeholder ของ manual review)
+   * - fallback = ไม่มี Pexels key / ไม่มีรูพผ่านเกณฑ์ → ต้องตรวจ
+   * - failed = Pexels API ล้มเหลวทุก retry → ต้องตรวจ
+   */
+  function countByImageStatus() {
+    const rows = db
+      .prepare(
+        "SELECT image_status AS status, COUNT(*) AS cnt FROM news WHERE image_status IS NOT NULL GROUP BY image_status"
+      )
+      .all();
+    const out = {};
+    for (const r of rows) out[r.status] = r.cnt;
+    return out;
+  }
+  /** นับข่าวที่ต้องตรวจรูป (image_review_required = 1) */
+  function countImageReviewRequired() {
+    return db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM news WHERE image_review_required = 1"
+      )
+      .get().n;
+  }
+  /** นับเฉพาะรูปที่มาจาก Pexels จริง ไม่รวม owned placeholder ที่มี status=selected */
+  function countPexelsImages() {
+    return db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM news WHERE image_status = 'selected' AND image_source = 'Pexels'"
+      )
+      .get().n;
+  }
+  /** Count owned fallback artwork, including manually-approved legacy rows. */
+  function countOwnedFallbackImages() {
+    return db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM news WHERE image_source = 'TraderToolsTH'"
+      )
+      .get().n;
+  }
+  /**
    * ข่าว published ล่าสุดตาม "เวลาที่กด publish" (published_at)
    * ต่างจาก listPublished ซึ่งเรียงตาม source_published_at (เวลาข่าวต้นทาง)
    * ใช้สำหรับ rollback ข่าวที่เพิ่งเผยแพร่
@@ -402,6 +443,10 @@ export function createNewsRepository(db) {
     countAll,
     countPublished,
     countByPublishStatus,
+    countByImageStatus,
+    countImageReviewRequired,
+    countPexelsImages,
+    countOwnedFallbackImages,
     listLatestPublished,
     // updates (status แยก)
     updateValidationStatus,

@@ -807,3 +807,13 @@ table.data .num {
   border: 0;
   margin-block: var(--sp-6);
 }
+.currency-flag {
+  width: 24px;
+  height: 16px;
+  display: block;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  object-fit: cover;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}

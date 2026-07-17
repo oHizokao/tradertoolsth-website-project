@@ -138,6 +138,25 @@ TT.h = {
     return "★★★★★☆☆☆☆☆".slice(5 - full, 10 - full);
   },
 
+  // สถานะการตรวจสอบข้อมูลโบรกเกอร์ → badge class + label ภาษาไทย
+  verificationStatusInfo(status) {
+    switch (status) {
+      case "verified":
+        return { cls: "badge--buy", label: "ยืนยันแล้ว" };
+      case "partial":
+        return { cls: "badge--gold", label: "ตรวจสอบบางส่วน" };
+      case "pending":
+      default:
+        return { cls: "badge--ghost", label: "รอตรวจสอบ" };
+    }
+  },
+
+  // แสดงค่า "รอตรวจสอบ" เมื่อค่าเป็น null/undefined/empty — ใช้กับฟิลด์โบรกเกอร์
+  orPending(value, placeholder = "รอตรวจสอบ") {
+    if (value === null || value === undefined || value === "") return placeholder;
+    return value;
+  },
+
   // จำลอง lazy reveal ด้วย IntersectionObserver
   revealOnScroll() {
     const els = document.querySelectorAll(".reveal");
