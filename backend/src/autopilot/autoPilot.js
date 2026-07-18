@@ -10,7 +10,8 @@
    - error ระดับข่าว → ข้าม + ทำข่าวถัดไป
    - error ระดับระบบ → release lock 'stopped_error' + lastError
    - reuse pipeline เดิม (fetchDigest/selectTopNews/processAndSaveBatch/evaluateSafetyGate)
-   - ห้าม bypass Safety Gate — publish เฉพาะข่าวที่ผ่าน 16 gates ครบ
+   - quality gate เป็น soft warnings: เผยแพร่ได้และติดป้ายให้ Admin ตรวจภายหลัง
+   - บล็อกเฉพาะข้อมูลที่สร้างหน้าข่าวไม่ได้จริง
    - audit ทุก stage (no secret)
    ============================================================ */
 
@@ -182,6 +183,7 @@ export function createAutoPilot(ctx, deps = {}) {
       digestItems: 0,
       processed: 0,
       published: 0,
+      warned: 0,
       blocked: 0,
       failed: 0,
       publishedIds: [],
@@ -282,41 +284,33 @@ export function createAutoPilot(ctx, deps = {}) {
           metadata: { imageStatus: news.imageStatus, reviewRequired: news.imageReviewRequired },
         });
 
-        // === SAFETY GATE (16 gates) ===
+        // === QUALITY CHECK (soft warnings) ===
         const gate = evaluateSafetyGate(news, {
           isMockRun: result.reason && String(result.reason).includes("mock"),
         });
-        if (!gate.passed) {
-          report.blocked += 1;
-          auditRepo.append({
-            runId,
-            newsId: news.id,
-            stage: AUDIT_STAGES.PUBLISH_BLOCKED,
-            status: "blocked",
-            reason: gate.reasons.join(","),
-          });
-          log.info(`publish blocked: ${news.id} reasons=${gate.reasons.join("|")}`.slice(0, 200));
-          continue;
-        }
-
-        // === PUBLISH (ผ่าน gate ครบ) ===
+        const warnings = gate.reasons.filter((reason) => reason !== "already_published");
         auditRepo.append({
           runId,
           newsId: news.id,
           stage: AUDIT_STAGES.VALIDATION_PASSED,
-          status: "ok",
+          status: warnings.length ? "warning" : "ok",
+          reason: warnings.length ? warnings.join(",") : undefined,
+          metadata: { publishWarnings: warnings },
         });
-        const published = repo.updatePublishStatus(news.id, "published");
-        if (published) {
+        const publishResult = repo.publishWithWarnings(news.id, warnings);
+        if (publishResult.published) {
           report.published += 1;
+          if (warnings.length) report.warned += 1;
           report.publishedIds.push(news.id);
           auditRepo.append({
             runId,
             newsId: news.id,
             stage: AUDIT_STAGES.PUBLISH_COMPLETED,
-            status: "ok",
+            status: warnings.length ? "warning" : "ok",
+            reason: warnings.length ? warnings.join(",") : undefined,
+            metadata: { publishWarnings: warnings },
           });
-          log.info(`publish completed: ${news.id}`);
+          log.info(`publish completed: ${news.id}${warnings.length ? ` warnings=${warnings.join("|")}` : ""}`.slice(0, 240));
         } else {
           report.blocked += 1;
           auditRepo.append({
@@ -324,7 +318,7 @@ export function createAutoPilot(ctx, deps = {}) {
             newsId: news.id,
             stage: AUDIT_STAGES.PUBLISH_BLOCKED,
             status: "blocked",
-            reason: "publish_guard_rejected",
+            reason: publishResult.error || "publish_technical_failure",
           });
         }
       }
@@ -337,6 +331,7 @@ export function createAutoPilot(ctx, deps = {}) {
         status: "ok",
         metadata: {
           published: report.published,
+          warned: report.warned,
           blocked: report.blocked,
           failed: report.failed,
           stopped: !!report.stopped,

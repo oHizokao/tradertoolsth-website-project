@@ -1,0 +1,4 @@
+interface:
+  display_name: "GLM Tech Lead"
+  short_description: "Persistent GLM delivery and QA loop"
+  default_prompt: "Use $tech-lead-orchestrator to implement and verify this change until it passes."

@@ -188,6 +188,52 @@ export function createNewsRepository(db) {
   }
 
   /**
+   * Auto Pilot / manual publish แบบ soft-gate:
+   * เงื่อนไขคุณภาพถูกเก็บเป็นคำเตือน แต่ไม่บล็อกการเผยแพร่
+   * บล็อกเฉพาะข้อมูลที่สร้างหน้าข่าวไม่ได้จริง (ไม่มีหัวข้อ/ไม่มีเนื้อหา)
+   */
+  const publishWithWarningsStmt = db.prepare(
+    `UPDATE news SET
+      validation_status = 'validated', publish_status = 'published',
+      ai_validation = ?, pipeline_note = ?,
+      validated_at = COALESCE(validated_at, ?),
+      published_at = COALESCE(published_at, ?), updated_at = ?
+     WHERE id = ?`
+  );
+  function publishWithWarnings(id, warnings = []) {
+    const current = getById(id);
+    if (!current) return { published: false, error: "news_not_found", warnings: [] };
+    const hasTitle = !!String(current.thaiTitle || current.originalTitle || "").trim();
+    const hasThaiContent = Array.isArray(current.thaiContent)
+      ? current.thaiContent.some((part) => String(part || "").trim())
+      : !!String(current.thaiContent || "").trim();
+    const hasContent = hasThaiContent || !!String(current.originalContent || "").trim();
+    if (!hasTitle || !hasContent) {
+      return {
+        published: false,
+        error: !hasTitle ? "missing_renderable_title" : "missing_renderable_content",
+        warnings: [],
+      };
+    }
+    const safeWarnings = Array.from(new Set((Array.isArray(warnings) ? warnings : [])
+      .map((value) => String(value || "").trim().slice(0, 160))
+      .filter(Boolean))).slice(0, 30);
+    const validation = {
+      ...(current.aiValidation && typeof current.aiValidation === "object" ? current.aiValidation : {}),
+      publishWarnings: safeWarnings,
+      autoPublishedWithWarnings: safeWarnings.length > 0,
+    };
+    const now = new Date().toISOString();
+    const note = safeWarnings.length
+      ? `auto_published_with_warnings:${safeWarnings.join("|")}`
+      : "auto_published_checked:no_warnings";
+    const info = publishWithWarningsStmt.run(
+      JSON.stringify(validation), note, now, now, now, id
+    );
+    return { published: info.changes > 0, warnings: safeWarnings };
+  }
+
+  /**
    * อัปเดต image metadata (หลัง findImageForNews)
    * ไม่แตะ validation/publish status
    */
@@ -221,15 +267,22 @@ export function createNewsRepository(db) {
     `UPDATE news SET
       thai_title = ?, thai_summary = ?, thai_content = ?, market_factors = ?,
       key_facts = ?, mentioned_numbers = ?, credit = ?,
-      validation_status = 'validated', publish_status = 'ready',
+       validation_status = 'validated',
+       publish_status = CASE WHEN publish_status = 'published' THEN 'published' ELSE 'ready' END,
       ai_confidence = ?, ai_validation = ?, pipeline_note = ?,
       image_url = ?, image_source = ?, image_author = ?, image_author_url = ?,
       image_license = ?, image_source_url = ?, image_status = ?,
-      image_review_required = ?, validated_at = ?, published_at = NULL, updated_at = ?
+       image_review_required = ?, validated_at = ?,
+       published_at = CASE WHEN publish_status = 'published' THEN published_at ELSE NULL END,
+       updated_at = ?
      WHERE id = ?`
   );
   function saveManualReview(id, reviewed, localCheck, imageMeta, audit) {
     const now = new Date().toISOString();
+    const warnings = [];
+    if (localCheck.bannedWords?.length) warnings.push(`banned_words:${localCheck.bannedWords.join(",")}`);
+    if (localCheck.adviceWords?.length) warnings.push(`investment_advice:${localCheck.adviceWords.join(",")}`);
+    if (localCheck.hasUnexpectedNumbers) warnings.push(`unexpected_numbers:${(localCheck.numberCheck?.unexpected || []).join(",")}`);
     const validation = {
       isValid: true,
       method: "manual_source_review_plus_deterministic_checks",
@@ -240,6 +293,8 @@ export function createNewsRepository(db) {
       investmentAdviceFound: localCheck.adviceWords.length > 0,
       confidence: 100,
       notes: audit.notes || "ตรวจเทียบต้นฉบับแล้ว",
+      publishWarnings: warnings,
+      autoPublishedWithWarnings: warnings.length > 0,
     };
     const info = updateReviewedStmt.run(
       reviewed.thaiTitle, reviewed.thaiSummary,
@@ -247,7 +302,9 @@ export function createNewsRepository(db) {
       JSON.stringify(reviewed.keyFacts || []), JSON.stringify(reviewed.mentionedNumbers || []),
       reviewed.credit || "อ้างอิงข้อมูลจาก Kitco News — เรียบเรียงใหม่โดย TraderToolsTH",
       100, JSON.stringify(validation),
-      `manual_source_review:${audit.reviewer}`,
+      warnings.length
+        ? `manual_review_with_warnings:${warnings.join("|")}`
+        : `manual_source_review:${audit.reviewer}`,
       imageMeta.imageUrl, imageMeta.imageSource, imageMeta.imageAuthor,
       imageMeta.imageAuthorUrl, imageMeta.imageLicense, imageMeta.imageSourceUrl,
       imageMeta.status, imageMeta.reviewRequired ? 1 : 0,
@@ -419,6 +476,46 @@ export function createNewsRepository(db) {
     return rows.map(rowToNews);
   }
 
+  // ---- DELETE (manual admin delete — single + bulk) ----
+  // ใช้ prepared statement เท่านั้น (กฎ QC: parameterized queries)
+  // การ bulk delete ทำใน transaction เดียว และรายงานผลแบบ truthful:
+  // แยก deletedIds (ที่มีอยู่จริงและถูกลบ) ออกจาก notFoundIds (ที่ไม่มีในระบบ)
+  // ห้ามรายงาน item ที่หาไม่พบว่าถูกลบ
+  const deleteByIdStmt = db.prepare("DELETE FROM news WHERE id = ?");
+  const existsByIdStmt = db.prepare("SELECT 1 FROM news WHERE id = ? LIMIT 1");
+
+  /** ลบข่าว 1 รายการ — คืน true ถ้ามี row ถูกลบจริง */
+  function deleteById(id) {
+    const info = deleteByIdStmt.run(id);
+    return info.changes > 0;
+  }
+
+  /** ตรวจว่า id มีอยู่ในระบบหรือไม่ (ใช้สำหรับ single delete 404) */
+  function existsById(id) {
+    return !!existsByIdStmt.get(id);
+  }
+
+  /**
+   * ลบข่าวหลายรายการใน transaction เดียว
+   * @param {string[]} ids — id ที่ผ่านการ validate/dedupe แล้ว
+   * @returns { { deletedIds: string[], notFoundIds: string[] } }
+   *   - deletedIds: id ที่มีอยู่จริงและถูกลบ (เรียงตาม input)
+   *   - notFoundIds: id ที่ไม่มีในระบบ (ไม่ถูกรายงานว่า deleted)
+   */
+  function deleteByIds(ids) {
+    const tx = db.transaction(() => {
+      const deletedIds = [];
+      const notFoundIds = [];
+      for (const id of ids) {
+        const info = deleteByIdStmt.run(id);
+        if (info.changes > 0) deletedIds.push(id);
+        else notFoundIds.push(id);
+      }
+      return { deletedIds, notFoundIds };
+    });
+    return tx();
+  }
+
   // ---- สำหรับ test/debug ----
   function clearAll() {
     db.prepare("DELETE FROM news").run();
@@ -451,9 +548,14 @@ export function createNewsRepository(db) {
     // updates (status แยก)
     updateValidationStatus,
     updatePublishStatus,
+    publishWithWarnings,
     updateImage,
     saveManualReview,
     hasUsableImage,
+    // delete (manual admin)
+    deleteById,
+    existsById,
+    deleteByIds,
     // debug
     clearAll,
   };

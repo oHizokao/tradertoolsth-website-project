@@ -70,10 +70,6 @@ TT.layout = (function () {
           ${linksWithDrop}
         </nav>
         <div class="nav-actions">
-          <button class="nav-icon-btn" aria-label="ค้นหา">${TT.icon("search", 20)}</button>
-          <button class="nav-icon-btn nav-theme-btn" aria-label="เปลี่ยนธีม">☾</button>
-          <button class="nav-lang" aria-label="เปลี่ยนภาษา">TH</button>
-          <span class="nav-divider"></span>
           <a href="contact.html" class="btn btn--ghost-light btn--sm">ติดต่อเรา</a>
           <a href="admin.html" class="btn btn--teal btn--sm">หลังบ้าน</a>
           <button class="nav-toggle" id="navToggle" aria-label="เปิด/ปิดเมนู" aria-expanded="false" aria-controls="navLinks">
@@ -91,7 +87,7 @@ TT.layout = (function () {
     return `<div class="ticker-tape ticker-tape--infographic" id="marketTicker" data-ticker-state="loading" aria-label="ราคาตลาดล่าสุด">
       <div class="ticker-tape__label">
         <span class="ticker-tape__live-dot" aria-hidden="true"></span>
-        <span class="ticker-tape__live-text">MARKET LIVE</span>
+        <span class="ticker-tape__live-text">ราคาอ้างอิงตลาด</span>
       </div>
       <button class="ticker-tape__play" id="tickerPlayBtn" type="button" aria-label="หยุด/เล่นการเลื่อนราคา" aria-pressed="false">
         <svg class="ticker-tape__play-icon ticker-tape__play-icon--pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
@@ -437,7 +433,7 @@ TT.layout = (function () {
     let badgeText = "";
     let badgeKind = ""; // "" | "live" | "stale" | "error" | "empty"
     let updatedText = "";
-    let liveLabel = "MARKET LIVE";
+    let liveLabel = "ราคาอ้างอิงตลาด";
 
     switch (snap.status) {
       case "loading":
@@ -448,23 +444,23 @@ TT.layout = (function () {
         badgeText = "Live";
         badgeKind = "live";
         updatedText = fmtUpdated(snap.updatedAt) || fmtUpdated(new Date().toISOString());
-        liveLabel = "MARKET LIVE";
+        liveLabel = "ราคาอ้างอิงตลาด";
         break;
       case "stale":
         badgeText = "ข้อมูลล่าสุดที่มี";
         badgeKind = "stale";
         updatedText = fmtUpdated(snap.updatedAt);
-        liveLabel = "DELAYED";
+        liveLabel = "ราคาอ้างอิงล่าสุด";
         break;
       case "unavailable":
         badgeText = "ไม่สามารถอัปเดตราคาได้";
         badgeKind = "error";
-        liveLabel = "OFFLINE";
+        liveLabel = "ราคาอ้างอิงไม่พร้อม";
         break;
       case "empty":
         badgeText = "ยังไม่มีข้อมูลราคา";
         badgeKind = "empty";
-        liveLabel = "NO DATA";
+        liveLabel = "ไม่มีข้อมูลราคา";
         break;
       default:
         break;

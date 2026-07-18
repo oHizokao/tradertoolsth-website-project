@@ -204,9 +204,9 @@ test("5. maxPerRun clamped to 3", async () => {
 });
 
 /* ============================================================
-   6. ข่าวไม่ผ่าน gate → ไม่ publish (audit publish_blocked)
+   6. ข่าวมี warning → publish และ mark ไว้
    ============================================================ */
-test("6. news failing gate not published", async () => {
+test("6. news failing quality gate publishes with warnings", async () => {
   const mockDigest = { items: [srcItem("1")], needsReview: [] };
   // news ไม่ผ่าน gate: validationStatus = needs_review
   const processBatchFn = makeMockProcessBatch({
@@ -215,15 +215,16 @@ test("6. news failing gate not published", async () => {
   const { autoPilot, repo, auditRepo } = setup({ mockDigest, processBatchFn });
   autoPilot.enable();
   const r = await autoPilot.runOnce();
-  assert.equal(r.published, 0);
-  assert.equal(r.blocked, 1);
-  // ไม่ถูก publish ใน DB
+  assert.equal(r.published, 1);
+  assert.equal(r.warned, 1);
+  assert.equal(r.blocked, 0);
   const news = repo.getById("kitco-1");
-  assert.notEqual(news.publishStatus, "published");
-  // audit มี publish_blocked
-  const blocked = auditRepo.listByRun(r.runId).filter((a) => a.stage === AUDIT_STAGES.PUBLISH_BLOCKED);
-  assert.equal(blocked.length, 1);
-  assert.match(blocked[0].reason, /validationStatus_not_validated/);
+  assert.equal(news.publishStatus, "published");
+  assert.equal(news.validationStatus, "validated");
+  assert.ok(news.aiValidation.publishWarnings.some((warning) => warning.includes("validationStatus_not_validated")));
+  const completed = auditRepo.listByRun(r.runId).filter((a) => a.stage === AUDIT_STAGES.PUBLISH_COMPLETED);
+  assert.equal(completed.length, 1);
+  assert.match(completed[0].reason, /validationStatus_not_validated/);
 });
 
 /* ============================================================
@@ -308,9 +309,9 @@ test("9. emergency stop halts run mid-way", async () => {
 });
 
 /* ============================================================
-   10. mock mode → ห้าม publish
+   10. mock mode → publish พร้อม warning
    ============================================================ */
-test("10. mock mode blocks publish", async () => {
+test("10. mock mode publishes with warning", async () => {
   const mockDigest = { items: [srcItem("1")], needsReview: [] };
   // processBatch คืน reason ที่บ่ง mock
   const processBatchFn = async (newsList, ctx) => {
@@ -321,30 +322,42 @@ test("10. mock mode blocks publish", async () => {
     });
     return { results, saved: results, duplicates: [], failed: [] };
   };
-  const { autoPilot, auditRepo } = setup({ mockDigest, processBatchFn });
+  const { autoPilot, repo } = setup({ mockDigest, processBatchFn });
   autoPilot.enable();
   const r = await autoPilot.runOnce();
-  assert.equal(r.published, 0, "mock mode ห้าม publish");
-  assert.equal(r.blocked, 1);
-  const blocked = auditRepo.listByRun(r.runId).filter((a) => a.stage === AUDIT_STAGES.PUBLISH_BLOCKED);
-  assert.match(blocked[0].reason, /mock_mode/);
+  assert.equal(r.published, 1);
+  assert.equal(r.warned, 1);
+  const saved = repo.getById("kitco-1");
+  assert.ok(saved.aiValidation.publishWarnings.includes("mock_mode"));
 });
 
 /* ============================================================
-   11. ไม่มี sourcePublishedAt → ห้าม publish
+   11. ไม่มี sourcePublishedAt → publish พร้อม warning
    ============================================================ */
-test("11. missing sourcePublishedAt blocks publish", async () => {
+test("11. missing sourcePublishedAt publishes with warning", async () => {
   const mockDigest = { items: [srcItem("1")], needsReview: [] };
   const processBatchFn = makeMockProcessBatch({
     newsFactory: (src) => goodNews(src.id, { sourcePublishedAt: null }),
   });
-  const { autoPilot, auditRepo } = setup({ mockDigest, processBatchFn });
+  const { autoPilot, repo } = setup({ mockDigest, processBatchFn });
+  autoPilot.enable();
+  const r = await autoPilot.runOnce();
+  assert.equal(r.published, 1);
+  assert.equal(r.warned, 1);
+  assert.ok(repo.getById("kitco-1").aiValidation.publishWarnings.includes("invalid_or_missing_sourcePublishedAt"));
+});
+
+test("11b. missing renderable content remains a technical block", async () => {
+  const mockDigest = { items: [srcItem("1")], needsReview: [] };
+  const processBatchFn = makeMockProcessBatch({
+    newsFactory: (src) => goodNews(src.id, { thaiContent: [], originalContent: "" }),
+  });
+  const { autoPilot, repo } = setup({ mockDigest, processBatchFn });
   autoPilot.enable();
   const r = await autoPilot.runOnce();
   assert.equal(r.published, 0);
   assert.equal(r.blocked, 1);
-  const blocked = auditRepo.listByRun(r.runId).filter((a) => a.stage === AUDIT_STAGES.PUBLISH_BLOCKED);
-  assert.match(blocked[0].reason, /invalid_or_missing_sourcePublishedAt/);
+  assert.notEqual(repo.getById("kitco-1").publishStatus, "published");
 });
 
 /* ============================================================

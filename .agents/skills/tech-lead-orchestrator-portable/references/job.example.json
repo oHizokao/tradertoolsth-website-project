@@ -1,0 +1,12 @@
+{
+  "projectRoot": "C:/absolute/path/to/project",
+  "taskFile": "C:/absolute/path/to/project/.orchestrator/task.md",
+  "envFile": "C:/absolute/path/to/private/glm.env",
+  "logDirectory": "C:/absolute/path/to/project/.orchestrator/logs",
+  "maxAttempts": 3,
+  "checkCommands": [
+    "git diff --check",
+    "npm run check",
+    "npm test"
+  ]
+}

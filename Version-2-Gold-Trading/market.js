@@ -55,6 +55,16 @@
             <h1>ติดตาม <span class="text-grad-blue">ภาพรวมตลาด</span></h1>
             <p>ข้อมูลราคา ข่าว และเหตุการณ์เศรษฐกิจจากระบบเดียว พร้อมสถานะความสดของข้อมูลอย่างชัดเจน</p>
           </div>
+
+          <!-- บอกตามตรง: เป็นข้อมูลราคาอ้างอิงจากระบบรวบรวมตลาด มิใช่สัญญาณเทรดจาก EA/MT5 -->
+          <div class="alert alert--info" style="margin-bottom:20px">
+            <span class="alert__icon">${TT.icon("info", 18)}</span>
+            <div>
+              <strong>ข้อมูลราคาอ้างอิง (Reference Market Data)</strong> — ราคานี้มาจากระบบรวบรวมตลาดของเว็บ
+              ใช้สำหรับติดตามและประกอบการวิเคราะห์เท่านั้น <strong>มิใช่สัญญาณเทรดจริงหรือคำสั่งจากระบบ EA/MT5</strong>
+              (ยังไม่มีการเชื่อมต่อ EA/MT5 signal feed) ราคาอาจต่างจากเบรกเกอร์หรือ TradingView ของแต่ละราย
+            </div>
+          </div>
           <div class="market-toolbar">
             <div class="segmented market-filters" id="marketFilters">
               ${FILTERS.map(([key, label]) => `<button type="button" data-filter="${key}" class="${key === "all" ? "is-active" : ""}">${label}</button>`).join("")}
@@ -123,6 +133,10 @@
     status.innerHTML = `<div class="market-status market-status--${esc(state.status)}"><span class="dot"></span><strong>${statusText}</strong><span>${formatTime(state.updatedAt)}</span></div>`;
     if (state.status === "loading" && !state.items.length) {
       grid.innerHTML = Array.from({ length: 6 }, () => `<div class="market-card market-card--skeleton"><span></span><span></span><span></span></div>`).join("");
+    } else if ((state.status === "unavailable" || state.status === "empty") && !state.items.length) {
+      // แจ้งตามตรงเมื่อดึงข้อมูลไม่ได้ — ห้ามแสดงเป็น "ไม่มีสินทรัพย์ในหมวด" เพราะจะเข้าใจผิด
+      const title = state.status === "unavailable" ? "ไม่สามารถอัปเดตข้อมูลตลาดได้ในขณะนี้" : "ยังไม่มีข้อมูลตลาด";
+      grid.innerHTML = `<div class="state state--wide"><div class="state__title">${title}</div><p>กรุณารีเฟรชอีกครั้ง หรือลองใหม่ภายหลัง</p></div>`;
     } else {
       const list = visibleItems();
       grid.innerHTML = list.length ? list.map(cardMarkup).join("") : `<div class="state state--wide"><div class="state__title">ยังไม่มีสินทรัพย์ในหมวดนี้</div><p>เพิ่มรายการโปรดหรือเลือกหมวดอื่น</p></div>`;
@@ -136,12 +150,16 @@
     const tone = positive ? "up" : negative ? "down" : "flat";
     const sign = positive ? "+" : "";
     const pct = Number.isFinite(item.changePercent) ? `${sign}${item.changePercent.toFixed(2)}%` : "—";
+    // สถานะต่อสัญลักษณ์แบบซื่อสัตย์: แหล่งข้อมูล + เวลาอัปเดต + stale (ข้อมูลล่าสุดที่มี)
+    const sourceLabel = item.source ? esc(item.source) : "ระบบรวบรวมตลาด";
+    const staleBadge = item.stale ? ` <span class="market-card__stale" title="ข้อมูลล่าสุดที่มี">stale</span>` : "";
     return `<article class="market-card market-card--${tone} ${state.selected === item.symbol ? "is-selected" : ""}">
       <button type="button" class="market-card__main" data-symbol="${esc(item.symbol)}" aria-label="ดูรายละเอียด ${esc(item.symbol)}">
         <span class="market-card__top"><strong>${esc(item.symbol)}</strong><small>${esc(LABELS[item.symbol] || item.symbol)}</small></span>
         <span class="market-card__price">${formatPrice(item.price)}</span>
         <span class="market-card__change">${pct}</span>
         ${sparkline(item.history, tone)}
+        <span class="market-card__src">${TT.icon("chart", 11)} ${sourceLabel} · ${formatTime(item.updatedAt)}${staleBadge}</span>
       </button>
       <button type="button" class="market-watch ${state.watch.has(item.symbol) ? "is-active" : ""}" data-watch="${esc(item.symbol)}" aria-label="${state.watch.has(item.symbol) ? "นำออกจาก" : "เพิ่มใน"} Watchlist">★</button>
     </article>`;

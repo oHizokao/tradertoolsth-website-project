@@ -8,7 +8,7 @@ import { createMarketApiHandler } from "./marketApi.js";
 import { createContentApiHandler } from "./contentApi.js";
 import { createForumApiHandler } from "./forumApi.js";
 import { createEaSubmissionApiHandler } from "../ea/eaSubmissionApi.js";
-import { isReadyForAutoPublish } from "../pipeline/runNewsUpdate.js";
+import { evaluateSafetyGate } from "../pipeline/runNewsUpdate.js";
 import { validateRewritten } from "../ai/validator.js";
 import { makeOwnedPlaceholder, findImageForNews } from "../image/imagePipeline.js";
 
@@ -59,6 +59,14 @@ function clampInt(value, fallback, min, max) {
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }
+
+/**
+ * ขนาด batch สูงสุดที่ปลอดภัยสำหรับ "ดึงทั้งหมดที่มี" (manual fetch all).
+ * เมื่อ fetchAll=true เราไม่ได้ตีความเป็น "ไม่จำกัด" แต่ใช้ค่าคงที่ที่ถูก bound
+ * ตามโมเดลความปลอดภัยของ candidate/pipeline ปัจจุบัน เพื่อไม่ให้สร้างภาระเกินขีดจำกัด
+ * ของระบบดึงข่าว/AI/Pexels ในหนึ่งรอบ (explicit named constant — ไม่ใช่ magic number).
+ */
+const MAX_MANUAL_FETCH_ALL = 50;
 
 /**
  * ใช้สำหรับป้องกันการกด refresh-image ซ้อน (per process).
@@ -669,6 +677,10 @@ export function createRequestHandler(options) {
             imageReviewRequired: item.imageReviewRequired,
             imageUrl: item.imageUrl || null,
             imageSource: item.imageSource || null,
+            pipelineNote: item.pipelineNote || null,
+            publishWarnings: Array.isArray(item.aiValidation?.publishWarnings)
+              ? item.aiValidation.publishWarnings
+              : [],
             sourceUrl: item.sourceUrl,
             sourceName: item.source,
             sourcePublishedAt: item.sourcePublishedAt,
@@ -826,24 +838,48 @@ export function createRequestHandler(options) {
             return json(res, 400, { error: "reviewed_news_schema_invalid" });
           }
           const localCheck = validateRewritten(item, reviewed);
-          if (!localCheck.canAutoValidate) {
-            return json(res, 409, { error: "deterministic_quality_gate", localCheck });
-          }
           const image = makeOwnedPlaceholder({ ...item, ...reviewed }, reviewed.imageSearchKeywords || []);
           repo.saveManualReview(id, reviewed, localCheck, image, {
             reviewer: String(body.reviewer).slice(0, 80),
             notes: String(body.notes || "").slice(0, 500),
           });
-          return json(res, 200, { ok: true, id, validationStatus: "validated", publishStatus: "ready", localCheck });
+          const updated = repo.getById(id);
+          return json(res, 200, {
+            ok: true,
+            id,
+            validationStatus: "validated",
+            publishStatus: updated?.publishStatus || "ready",
+            publishWarnings: updated?.aiValidation?.publishWarnings || [],
+            localCheck,
+          });
         }
         if (req.method === "POST" && pathname === "/api/admin/run") {
           if (!updater) return json(res, 503, { error: "updater_unavailable" });
           const body = await readJson(req);
+          // Configurable manual fetch: จำนวนข่าว (maxPerRun, clamp 1-10) +
+          // ตัวเลือกภาพประกอบ (withImages/skipImage) + ดึงทั้งหมดที่มี (fetchAll)
+          // — sanitizer เข้มงวด, auth (cookie|Bearer) + CSRF (Origin) ตรวจก่อนหน้า
+          // ในบล็อก /api/admin/
+          // fetchAll ต้องเป็น boolean เท่านั้น; เมื่อ true ใช้ batch size ที่ bound ปลอดภัย
+          // (MAX_MANUAL_FETCH_ALL) แทนการตีความเป็นค่าเริ่มต้น/ไม่จำกัด
+          const fetchAll = body.fetchAll === true;
+          const withImages = body.withImages !== false && body.skipImage !== true;
+          const effectiveMax = fetchAll
+            ? MAX_MANUAL_FETCH_ALL
+            : clampInt(body.maxPerRun, 3, 1, 10);
           const result = await updater.run({
-            maxPerRun: clampInt(body.maxPerRun, 3, 1, 10),
+            maxPerRun: effectiveMax,
             autoPublish: false,
+            skipImage: !withImages,
+            fetchAll,
           });
-          return json(res, result.skipped ? 202 : 200, result);
+          // ส่ง effectiveMax กลับด้วยเพื่อให้ frontend/report ทราบขนาด batch จริงที่ใช้
+          return json(res, result.skipped ? 202 : 200, {
+            ...result,
+            fetchAll,
+            effectiveMax,
+            skipImage: !withImages,
+          });
         }
         const actionMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)\/(approve|reject|publish)$/);
         if (req.method === "POST" && actionMatch) {
@@ -864,13 +900,90 @@ export function createRequestHandler(options) {
             repo.updatePublishStatus(id, "ready");
             return json(res, 200, { ok: true, id, publishStatus: "ready" });
           }
-          if (!isReadyForAutoPublish(item)) {
-            return json(res, 409, { error: "publish_guard_rejected" });
+          const gate = evaluateSafetyGate(item);
+          const warnings = gate.reasons.filter((reason) => reason !== "already_published");
+          const result = repo.publishWithWarnings(id, warnings);
+          return json(res, result.published ? 200 : 409, result.published
+            ? { ok: true, id, publishStatus: "published", publishWarnings: result.warnings }
+            : { error: result.error || "publish_technical_failure" });
+        }
+
+        // ---- Bulk delete (selected news) ----
+        // POST /api/admin/news/bulk-delete  body: { ids: string[] }
+        // กฎ QC:
+        //   - ids ต้องเป็น array เท่านั้น, 1..50 รายการ
+        //   - แต่ละ id ต้องเป็น string ที่ไม่ว่าง → dedupe
+        //   - ตอบกลับแบบ truthful: deletedIds (ลบจริง) vs notFoundIds (ไม่มีในระบบ)
+        //     ห้ามรายงาน item ที่หาไม่พบว่าถูกลบ
+        //   - บันทึก audit log ถ้ามี auditRepo (optional — ต้องไม่พัง fixture ที่ไม่ส่งมา)
+        if (req.method === "POST" && pathname === "/api/admin/news/bulk-delete") {
+          const body = await readJson(req);
+          const raw = body.ids;
+          if (!Array.isArray(raw)) {
+            return json(res, 400, { error: "ids_must_be_array" });
           }
-          const published = repo.updatePublishStatus(id, "published");
-          return json(res, published ? 200 : 409, published
-            ? { ok: true, id, publishStatus: "published" }
-            : { error: "publish_update_rejected" });
+          if (raw.length === 0) {
+            return json(res, 400, { error: "ids_empty" });
+          }
+          if (raw.length > 50) {
+            return json(res, 400, { error: "ids_too_many" });
+          }
+          // validate + dedupe (preserve first-seen order)
+          const seen = new Set();
+          const ids = [];
+          for (const v of raw) {
+            if (typeof v !== "string" || v.trim() === "") {
+              return json(res, 400, { error: "ids_invalid_entry" });
+            }
+            if (!seen.has(v)) {
+              seen.add(v);
+              ids.push(v);
+            }
+          }
+          const { deletedIds, notFoundIds } = repo.deleteByIds(ids);
+          if (auditRepo) {
+            auditRepo.append({
+              runId: "news-bulk-delete-" + randomUUID(),
+              newsId: deletedIds.join(",").slice(0, 200) || "(none)",
+              stage: "news_bulk_deleted",
+              status: "ok",
+              reason: "manual_bulk_delete",
+              metadata: {
+                requested: ids.length,
+                deleted: deletedIds.length,
+                notFound: notFoundIds.length,
+              },
+            });
+          }
+          return json(res, 200, {
+            ok: true,
+            deletedIds,
+            notFoundIds,
+            requested: ids.length,
+          });
+        }
+
+        // ---- Single delete ----
+        // DELETE /api/admin/news/:id
+        // คืน 404 เมื่อ id ไม่มีในระบบ; 200 เมื่อลบสำเร็จ
+        const deleteMatch = pathname.match(/^\/api\/admin\/news\/([^/]+)$/);
+        if (req.method === "DELETE" && deleteMatch) {
+          const id = decodeURIComponent(deleteMatch[1]);
+          if (!repo.existsById(id)) {
+            return json(res, 404, { error: "news_not_found" });
+          }
+          const deleted = repo.deleteById(id);
+          if (auditRepo) {
+            auditRepo.append({
+              runId: "news-delete-" + randomUUID(),
+              newsId: id,
+              stage: "news_deleted",
+              status: "ok",
+              reason: "manual_delete",
+              metadata: { deleted },
+            });
+          }
+          return json(res, 200, { ok: true, id, deleted });
         }
       }
 

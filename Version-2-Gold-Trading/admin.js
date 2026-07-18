@@ -18,6 +18,8 @@
   const AP_API = "/api/admin/auto-pilot"; // Auto Pilot endpoints
   const NEWS_API = "/api/admin/news"; // News management endpoints
   const REFRESH_MS = 10000; // auto-refresh สถานะทุก 10 วิ
+  const NEWS_REFRESH_RETRY_MS = 500; // รอ DB/list ตามหลัง pipeline แบบสั้น ๆ
+  const NEWS_REFRESH_RETRIES = 8; // สูงสุด 4 วินาทีหลังคำสั่งดึงข่าวสำเร็จ
   const EMERGENCY_WINDOW_MS = 5000; // หน้าต่างยืนยัน emergency/rollback 2 ขั้น
 
   // publish_status ที่ใช้ใน filter และ badge
@@ -49,6 +51,10 @@
     enableConfirmedOnce: false,
     refreshTimer: null,
     newsFilter: "", // publish_status filter ("" = all)
+    fetchMaxPerRun: 3, // จำนวนข่าวสูงสุดต่อรอบที่เลือกในฟอร์มดึงข่าว (1-10)
+    fetchWithImages: true, // ตัวเลือกภาพประกอบ: true = ดึงพร้อมรูป (Pexels), false = ข้ามรูป
+    fetchFetchAll: false, // ดึงทั้งหมดที่มี (true = ส่ง fetchAll ไป backend, ปิด numeric input)
+    newsSelected: new Set(), // id ข่าวที่เลือกไว้สำหรับ bulk delete
     reviewer: "", // ชื่อ reviewer สำหรับ review/rollback
     busyRows: new Set(), // id ของข่าวที่กำลังประมวลผล (กันกดซ้ำ)
   };
@@ -342,6 +348,26 @@
         ${renderStatsGrid(pub, val, c.total || 0, img)}
 
         <div class="admin-controls">
+          <div class="admin-fetch-config" role="group" aria-label="ตัวเลือกการดึงข่าว">
+            <label class="admin-login__label" for="fetchMaxPerRun">จำนวนข่าวต่อรอบ</label>
+            <input class="admin-login__input" id="fetchMaxPerRun" name="fetchMaxPerRun"
+                   type="number" min="1" max="10" step="1" inputmode="numeric"
+                   style="max-width:90px"
+                   value="${h.esc(String(state.fetchMaxPerRun))}"
+                   ${state.fetchFetchAll || controlsBusy ? "disabled" : ""}>
+            <label class="admin-fetch-config__check" for="fetchFetchAll">
+              <input type="checkbox" id="fetchFetchAll" name="fetchFetchAll"
+                     ${state.fetchFetchAll ? "checked" : ""}
+                     ${controlsBusy ? "disabled" : ""}>
+              <span>ดึงทั้งหมดที่มี</span>
+            </label>
+            <label class="admin-fetch-config__check" for="fetchWithImages">
+              <input type="checkbox" id="fetchWithImages" name="fetchWithImages"
+                     ${state.fetchWithImages ? "checked" : ""}
+                     ${controlsBusy ? "disabled" : ""}>
+              <span>ดึงพร้อมรูปภาพ (Pexels)</span>
+            </label>
+          </div>
           <button class="btn btn--teal" type="button" id="adminFetchBtn" ${controlsBusy ? "disabled" : ""}>
             ดึงข่าวใหม่
           </button>
@@ -363,6 +389,13 @@
               (st) => `<option value="${st}" ${state.newsFilter === st ? "selected" : ""}>${h.esc(STATUS_LABELS[st] || st)}</option>`
             ).join("")}
           </select>
+          <span class="admin-bulk-bar__count" id="newsSelectedCount" aria-live="polite">
+            เลือกแล้ว ${state.newsSelected.size} รายการ
+          </span>
+          <button class="btn btn--soft admin-btn--danger" type="button" id="adminBulkDeleteBtn"
+                  ${controlsBusy || state.newsSelected.size === 0 ? "disabled" : ""}>
+            ลบที่เลือก
+          </button>
         </div>
 
         <div class="admin-news-table-wrap">
@@ -422,6 +455,10 @@
       <table class="admin-news-table">
         <thead>
           <tr>
+            <th class="admin-news__select-col">
+              <input type="checkbox" id="newsSelectAll" class="admin-news-select-all"
+                     aria-label="เลือกทั้งหมดที่แสดง">
+            </th>
             <th>ข่าว</th>
             <th>แหล่ง</th>
             <th>เวลาต้นทาง</th>
@@ -440,6 +477,17 @@
 
   function renderNewsRow(n) {
     const busy = state.busyRows.has(n.id);
+    const selected = state.newsSelected.has(n.id);
+    const publishWarnings = Array.isArray(n.publishWarnings) ? n.publishWarnings : [];
+    const warningBadge = publishWarnings.length
+      ? `<br><span class="admin-badge admin-badge--warn" title="${h.esc(publishWarnings.join(" • "))}">⚠ ควรตรวจ ${publishWarnings.length} จุด</span>`
+      : "";
+    const selectCell = `<td class="admin-news__select-col">
+      <input type="checkbox" class="admin-news-select" data-news-select
+             id="news-select-${h.esc(n.id)}" data-id="${h.esc(n.id)}"
+             aria-label="เลือกข่าวนี้เพื่อลบ"
+             ${selected ? "checked" : ""} ${busy ? "disabled" : ""}>
+    </td>`;
     const publishBtn =
       n.publishStatus === "ready"
         ? `<button class="btn btn--primary btn--sm" data-act="publish" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>เผยแพร่</button>`
@@ -449,13 +497,14 @@
         ? `<button class="btn btn--ghost btn--sm" data-act="approve" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>อนุมัติ</button>`
         : "";
     const reviewBtn =
-      n.publishStatus !== "published" && n.publishStatus !== "rejected"
-        ? `<button class="btn btn--teal btn--sm" data-act="review" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>แก้ไข/ตรวจ</button>`
+      n.publishStatus !== "rejected"
+        ? `<button class="btn btn--teal btn--sm" data-act="review" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>${n.publishStatus === "published" ? "แก้ไขข่าว" : "แก้ไข/ตรวจ"}</button>`
         : "";
     const rejectBtn =
       n.publishStatus !== "rejected" && n.publishStatus !== "published"
         ? `<button class="btn btn--soft btn--sm" data-act="reject" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>ปฏิเสธ</button>`
         : "";
+    const deleteBtn = `<button class="btn btn--soft btn--sm admin-btn--danger" data-act="delete" data-id="${h.esc(n.id)}" ${busy ? "disabled" : ""}>ลบ</button>`;
     const detailBtn = `<button class="btn btn--ghost btn--sm" data-act="detail" data-id="${h.esc(n.id)}">รายละเอียด</button>`;
     const sourceLink = n.sourceUrl
       ? `<a href="${h.esc(n.sourceUrl)}" target="_blank" rel="noopener noreferrer" class="admin-link">${h.esc(n.sourceName || "ต้นฉบับ")} ↗</a>`
@@ -463,11 +512,12 @@
     const imgCell = renderNewsThumbnail(n);
 
     return `<tr>
+      ${selectCell}
       <td class="admin-news__title" title="${h.esc(n.title || "")}">${h.esc((n.title || "-").slice(0, 80))}${(n.title || "").length > 80 ? "…" : ""}</td>
       <td>${sourceLink}</td>
       <td class="mono" style="font-size:var(--fs-xs)">${h.esc(h.formatBangkok(n.sourcePublishedAt, { prefix: "" }) || "-")}</td>
       <td><span class="admin-badge admin-badge--${badgeClass(n.publishStatus)}">${h.esc(STATUS_LABELS[n.publishStatus] || n.publishStatus || "-")}</span></td>
-      <td><span class="admin-badge admin-badge--${valBadgeClass(n.validationStatus)}">${h.esc(STATUS_LABELS[n.validationStatus] || n.validationStatus || "-")}</span><br><span class="mono" style="font-size:var(--fs-xs)">conf ${n.aiConfidence ?? "-"}</span></td>
+      <td><span class="admin-badge admin-badge--${valBadgeClass(n.validationStatus)}">${h.esc(STATUS_LABELS[n.validationStatus] || n.validationStatus || "-")}</span><br><span class="mono" style="font-size:var(--fs-xs)">conf ${n.aiConfidence ?? "-"}</span>${warningBadge}</td>
       <td>${imgCell}</td>
       <td class="admin-news__actions">
         ${detailBtn}
@@ -475,6 +525,7 @@
         ${approveBtn}
         ${publishBtn}
         ${rejectBtn}
+        ${deleteBtn}
       </td>
     </tr>`;
   }
@@ -693,6 +744,7 @@
     const ids = [
       "adminFetchBtn", "adminRefreshNewsBtn", "adminRollbackBtn", "adminEnableBtn",
       "adminDisableBtn", "adminRunBtn", "adminEmergencyBtn", "adminClearEmgBtn",
+      "adminBulkDeleteBtn",
     ];
     ids.forEach((id) => {
       const btn = document.getElementById(id);
@@ -701,11 +753,16 @@
     document.querySelectorAll(".admin-news-table [data-act]").forEach((btn) => {
       btn.disabled = disabled;
     });
+    // ปิด checkbox เลือกข่าวระหว่างประมวลผล (กันเปลี่ยน selection ขณะ bulk delete)
+    document.querySelectorAll(".admin-news-select, #newsSelectAll").forEach((cb) => {
+      cb.disabled = disabled;
+    });
   }
 
   function beginOperation(key, label, detail, buttonId, buttonLabel) {
     if (state.activeOperation) {
       state.notice = { type: "info", msg: `ระบบกำลังทำงาน: ${state.activeOperation.label} กรุณารอให้เสร็จก่อน` };
+      showToast("info", state.notice.msg);
       return false;
     }
     state.activeOperation = { key, label, detail, startedAt: new Date().toISOString() };
@@ -713,6 +770,7 @@
     syncActivityPanel();
     disableActionButtons(true);
     if (buttonId && buttonLabel) setBtnLoading(buttonId, buttonLabel);
+    showToast("info", `${label} — กำลังดำเนินการ`);
     return true;
   }
 
@@ -730,6 +788,7 @@
     state.activeOperation = null;
     state.notice = { type, msg: summary };
     syncActivityPanel();
+    showToast(type, summary);
   }
 
   function recordOperationResult(label, type, summary) {
@@ -743,6 +802,7 @@
     state.operationHistory = state.operationHistory.slice(0, 8);
     state.notice = { type, msg: summary };
     syncActivityPanel();
+    showToast(type, summary);
   }
 
   function formatNewsRunResult(payload = {}) {
@@ -766,6 +826,31 @@
 
   function renderNotice(notice) {
     return `<div class="admin-notice admin-notice--${notice.type}">${h.esc(notice.msg)}</div>`;
+  }
+
+  function showToast(type, message, timeoutMs = 4500) {
+    let region = document.getElementById("adminToastRegion");
+    if (!region) {
+      region = document.createElement("div");
+      region.id = "adminToastRegion";
+      region.className = "admin-toast-region";
+      region.setAttribute("role", "region");
+      region.setAttribute("aria-label", "การแจ้งเตือน");
+      document.body.appendChild(region);
+    }
+    const toast = document.createElement("div");
+    const safeType = ["success", "error", "info"].includes(type) ? type : "info";
+    toast.className = `admin-toast admin-toast--${safeType}`;
+    toast.setAttribute("role", safeType === "error" ? "alert" : "status");
+    toast.innerHTML = `<span class="admin-toast__dot" aria-hidden="true"></span><span>${h.esc(message)}</span><button type="button" class="admin-toast__close" aria-label="ปิดการแจ้งเตือน">×</button>`;
+    region.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add("is-visible"));
+    const remove = () => {
+      toast.classList.remove("is-visible");
+      setTimeout(() => toast.remove(), 180);
+    };
+    toast.querySelector(".admin-toast__close")?.addEventListener("click", remove);
+    setTimeout(remove, timeoutMs);
   }
 
   // ---------- dashboard controls ----------
@@ -846,6 +931,29 @@
     if (fetchBtn) {
       fetchBtn.addEventListener("click", () => void handleFetchNewsWithStatus());
     }
+    // ตัวเลือกการดึงข่าว (จำนวน + รูปภาพ + ดึงทั้งหมด) — เก็บเข้า state ทันทีที่เปลี่ยน
+    // เพื่อให้ re-render dashboard แล้วค่าที่ผู้ใจเลือกยังอยู่
+    const maxPerRunInput = document.getElementById("fetchMaxPerRun");
+    if (maxPerRunInput) {
+      maxPerRunInput.addEventListener("input", (e) => {
+        state.fetchMaxPerRun = readFetchMaxPerRun(e.target.value);
+      });
+    }
+    const fetchAllInput = document.getElementById("fetchFetchAll");
+    if (fetchAllInput) {
+      fetchAllInput.addEventListener("change", (e) => {
+        state.fetchFetchAll = !!e.target.checked;
+        // เมื่อเปิด "ดึงทั้งหมดที่มี" → ปิด numeric input (ค่า maxPerRun จะถูกแทนด้วย batch size ฝั่ง backend)
+        const num = document.getElementById("fetchMaxPerRun");
+        if (num) num.disabled = state.fetchFetchAll || !!state.activeOperation;
+      });
+    }
+    const withImagesInput = document.getElementById("fetchWithImages");
+    if (withImagesInput) {
+      withImagesInput.addEventListener("change", (e) => {
+        state.fetchWithImages = !!e.target.checked;
+      });
+    }
     const refreshBtn = document.getElementById("adminRefreshNewsBtn");
     if (refreshBtn) {
       refreshBtn.addEventListener("click", async () => {
@@ -875,7 +983,30 @@
       });
     }
 
-    // row action buttons (event delegation)
+    // select-all visible rows checkbox
+    const selectAll = document.getElementById("newsSelectAll");
+    if (selectAll) {
+      selectAll.addEventListener("change", (e) => {
+        const checked = !!e.target.checked;
+        document.querySelectorAll(".admin-news-select").forEach((cb) => {
+          if (cb.disabled) return;
+          cb.checked = checked;
+          const id = cb.dataset.id;
+          if (!id) return;
+          if (checked) state.newsSelected.add(id);
+          else state.newsSelected.delete(id);
+        });
+        updateSelectedCount();
+      });
+    }
+
+    // bulk delete (selected) — ต้อง confirm ก่อนส่งคำขอ
+    const bulkDeleteBtn = document.getElementById("adminBulkDeleteBtn");
+    if (bulkDeleteBtn) {
+      bulkDeleteBtn.addEventListener("click", () => void handleBulkDelete());
+    }
+
+    // row action buttons + per-row checkbox (event delegation)
     const tableWrap = document.querySelector(".admin-news-table-wrap");
     if (tableWrap) {
       tableWrap.addEventListener("click", (e) => {
@@ -888,8 +1019,23 @@
         else if (act === "approve") void handleApprove(id);
         else if (act === "reject") void handleReject(id);
         else if (act === "publish") void handlePublish(id);
+        else if (act === "delete") void handleDeleteSingle(id);
+      });
+      tableWrap.addEventListener("change", (e) => {
+        const cb = e.target.closest("[data-news-select]");
+        if (!cb) return;
+        const id = cb.dataset.id;
+        if (!id) return;
+        if (cb.checked) state.newsSelected.add(id);
+        else state.newsSelected.delete(id);
+        updateSelectedCount();
+        syncSelectAllCheckbox();
       });
     }
+
+    // sync UI state ที่ขึ้นกับ selection หลัง render
+    updateSelectedCount();
+    syncSelectAllCheckbox();
   }
 
   // ---------- news actions ----------
@@ -913,11 +1059,27 @@
     renderDashboard();
   }
 
+  // อ่าน + sanitize จำนวนข่าวต่อรอบจาก input (1-10, default 3)
+  // ป้องกันค่าตกหล่น/ปัดเศษ/อักขระแปลกจากผู้ใช้ — backend จะ clamp อีกชั้น
+  function readFetchMaxPerRun(raw) {
+    const n = Math.floor(Number(raw));
+    if (!Number.isFinite(n)) return 3;
+    return Math.max(1, Math.min(10, n));
+  }
+
   async function handleFetchNewsWithStatus() {
+    const fetchAll = !!state.fetchFetchAll;
+    const maxPerRun = readFetchMaxPerRun(state.fetchMaxPerRun);
+    const withImages = !!state.fetchWithImages;
+    const beforeRun = snapshotNewsState();
+    let expectedSaved = 0;
+    let shouldWaitForNews = false;
+    const imgNote = withImages ? " → ดึงรูปจาก Pexels" : " → ข้ามการดึงรูป";
+    const countLabel = fetchAll ? "ทั้งหมดที่มี" : `${maxPerRun} รายการ`;
     if (!beginOperation(
       "fetch-news",
-      "ดึงข่าวใหม่",
-      "กำลังอ่านรายการต้นทาง → ตรวจข่าวซ้ำ → เปิดบทความ → เรียบเรียงและตรวจคุณภาพ → ดึงรูปจาก Pexels → บันทึกผล",
+      `ดึงข่าวใหม่ ${countLabel}${withImages ? "" : " (ไม่มีรูป)"}`,
+      `กำลังอ่านรายการต้นทาง → ตรวจข่าวซ้ำ → เปิดบทความ → เรียบเรียงและตรวจคุณภาพ${imgNote} → บันทึกผล`,
       "adminFetchBtn",
       "กำลังดึงและตรวจข่าว..."
     )) return;
@@ -926,9 +1088,11 @@
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ maxPerRun: 3 }),
+        body: JSON.stringify({ maxPerRun, withImages, fetchAll }),
       });
       if (status === 200 || status === 202) {
+        expectedSaved = Number(payload.saved || 0);
+        shouldWaitForNews = !payload.skipped;
         finishOperation(payload.skipped ? "info" : "success", formatNewsRunResult(payload));
       } else if (status === 401) {
         state.activeOperation = null;
@@ -941,22 +1105,56 @@
     } catch (err) {
       finishOperation("error", `เชื่อมต่อระบบไม่ได้: ${err.message || err}`);
     }
-    await loadAllAndRender();
+    if (shouldWaitForNews) {
+      await refreshNewsAfterRun(beforeRun, expectedSaved);
+    } else {
+      await loadAllAndRender();
+    }
+  }
+
+  function snapshotNewsState() {
+    return {
+      total: Number(state.counts?.total || 0),
+      ids: state.news.map((item) => String(item.id)).join("|"),
+    };
+  }
+
+  function newsStateChanged(before) {
+    const current = snapshotNewsState();
+    return current.total !== before.total || current.ids !== before.ids;
+  }
+
+  async function refreshNewsAfterRun(before, expectedSaved) {
+    for (let attempt = 0; attempt < NEWS_REFRESH_RETRIES; attempt += 1) {
+      await Promise.all([loadStatus(), loadCounts(), loadNews()]);
+      if (!state.authenticated) return;
+      const changed = newsStateChanged(before);
+      renderDashboard();
+      // ถ้าไม่มีข่าวใหม่ตามผลลัพธ์ (เช่นมีแต่ข่าวซ้ำ) โหลดครั้งเดียวก็เพียงพอ
+      if (changed || expectedSaved <= 0) return;
+      await new Promise((resolve) => setTimeout(resolve, NEWS_REFRESH_RETRY_MS));
+    }
+    // ยังไม่เห็น record ใหม่ภายในช่วง retry ให้รอบ auto-refresh โหลดรายการต่อเอง
+    showToast("info", "ระบบบันทึกข่าวแล้ว และจะอัปเดตรายการให้อัตโนมัติในอีกสักครู่");
   }
 
   async function handleFetchNews() {
     setBtnLoading("adminFetchBtn", "กำลังดึง...");
     state.notice = null;
+    const fetchAll = !!state.fetchFetchAll;
+    const maxPerRun = readFetchMaxPerRun(state.fetchMaxPerRun);
+    const withImages = !!state.fetchWithImages;
     try {
       // POST /api/admin/run — manual news fetch (ไม่ auto-publish)
+      // ค่า maxPerRun, withImages และ fetchAll มาจากฟอร์มที่ผู้ใจเลือก
       const { status, payload } = await doFetch("/api/admin/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ maxPerRun: 3 }),
+        body: JSON.stringify({ maxPerRun, withImages, fetchAll }),
       });
       if (status === 202 || status === 200) {
-        state.notice = { type: "success", msg: payload.skipped ? "มีการดึงข่าวอยู่แล้ว" : "เริ่มดึงข่าวแล้ว (อาจใช้เวลาสักครู่)" };
+        state.notice = { type: "success", msg: payload.skipped ? "มีการดึงข่าวอยู่แล้ว" : `เริ่มดึงข่าว ${fetchAll ? "ทั้งหมดที่มี" : `${maxPerRun} รายการ`} แล้ว${withImages ? "" : " (ไม่มีรูป)"} (อาจใช้เวลาสักครู่)` };
       } else if (status === 401) {
         return sessionExpired();
       } else if (status === 403) {
@@ -968,6 +1166,109 @@
       state.notice = { type: "error", msg: "เชื่อมต่อ server ไม่ได้" };
     }
     await loadAllAndRender();
+  }
+
+  // ---------- selection helpers (bulk delete) ----------
+  // อัปเดตตัวเลข "เลือกแล้ว N รายการ" + สถานะปุ่ม "ลบที่เลือก"
+  function updateSelectedCount() {
+    const n = state.newsSelected.size;
+    const el = document.getElementById("newsSelectedCount");
+    if (el) el.textContent = `เลือกแล้ว ${n} รายการ`;
+    const btn = document.getElementById("adminBulkDeleteBtn");
+    if (btn) btn.disabled = n === 0 || !!state.activeOperation;
+  }
+
+  // sync สถานะ checkbox "เลือกทั้งหมด" (checked/indeterminate/unchecked)
+  function syncSelectAllCheckbox() {
+    const sa = document.getElementById("newsSelectAll");
+    if (!sa) return;
+    const boxes = Array.from(document.querySelectorAll(".admin-news-select")).filter((b) => !b.disabled);
+    if (!boxes.length) {
+      sa.checked = false;
+      sa.indeterminate = false;
+      return;
+    }
+    const allChecked = boxes.every((b) => b.checked);
+    const someChecked = boxes.some((b) => b.checked);
+    sa.checked = allChecked;
+    sa.indeterminate = !allChecked && someChecked;
+  }
+
+  // ---------- delete (single) ----------
+  // กฎ safety: window.confirm ทันทีก่อนคำขอ — ไม่ยืนยัน = ไม่ส่งคำขอ
+  // ปิด UI ขณะทำงาน, ล้าง/อัปเดต state แล้ว reload counts + news
+  async function handleDeleteSingle(id) {
+    if (!window.confirm("ยืนยันการลบข่าวนี้? การกระทำนี้ไม่สามารถย้อนกลับได้")) return;
+    if (!beginOperation(
+      `delete-${id}`,
+      "ลบข่าว",
+      "กำลังลบข่าวรายการนี้ออกจากระบบ",
+      null,
+      null
+    )) return;
+    state.busyRows.add(id);
+    setRowBusy(id, "กำลังลบ...");
+    try {
+      const { status, payload } = await news("DELETE", `/${encodeURIComponent(id)}`);
+      if (status === 401) {
+        state.activeOperation = null;
+        state.busyRows.delete(id);
+        return sessionExpired();
+      }
+      if (status === 404) {
+        finishOperation("error", "ไม่พบข่าวนี้ (อาจถูกลบไปแล้ว)");
+      } else if (status === 200) {
+        state.newsSelected.delete(id);
+        finishOperation("success", "ลบข่าวแล้ว");
+      } else {
+        finishOperation("error", `ลบไม่สำเร็จ: ${payload.error || `HTTP ${status}`}`);
+      }
+    } catch (err) {
+      finishOperation("error", `เชื่อมต่อระบบไม่ได้: ${err.message || err}`);
+    } finally {
+      state.busyRows.delete(id);
+      await loadAllAndRender();
+    }
+  }
+
+  // ---------- delete (bulk selected) ----------
+  // กฎ safety: window.confirm ทันทีก่อนคำขอ — ไม่ยืนยัน = ไม่ส่งคำขอ
+  // ปิด UI ขณะทำงาน, ล้าง selection แล้ว reload counts + news
+  async function handleBulkDelete() {
+    const ids = Array.from(state.newsSelected);
+    if (!ids.length) return;
+    if (!window.confirm(`ยืนยันการลบข่าว ${ids.length} รายการที่เลือก? การกระทำนี้ไม่สามารถย้อนกลับได้`)) return;
+    if (!beginOperation(
+      "bulk-delete",
+      `ลบข่าว ${ids.length} รายการ`,
+      "กำลังลบข่าวที่เลือกออกจากระบบ",
+      "adminBulkDeleteBtn",
+      "กำลังลบ..."
+    )) return;
+    try {
+      const { status, payload } = await news("POST", `/bulk-delete`, { body: { ids } });
+      if (status === 401) {
+        state.activeOperation = null;
+        return sessionExpired();
+      }
+      if (status === 400) {
+        finishOperation("error", `คำขอไม่ถูกต้อง: ${payload.error || "ids ไม่ valid"}`);
+      } else if (status === 200) {
+        const del = (payload.deletedIds || []).length;
+        const notFound = (payload.notFoundIds || []).length;
+        state.newsSelected.clear();
+        finishOperation(
+          notFound ? "info" : "success",
+          `ลบแล้ว ${del} รายการ${notFound ? ` · ไม่พบ ${notFound} รายการ` : ""}`
+        );
+      } else {
+        finishOperation("error", `ลบไม่สำเร็จ: ${payload.error || `HTTP ${status}`}`);
+      }
+    } catch (err) {
+      finishOperation("error", `เชื่อมต่อระบบไม่ได้: ${err.message || err}`);
+    } finally {
+      await loadAllAndRender();
+    }
   }
 
   async function handleShowDetail(id) {
@@ -995,6 +1296,10 @@
       ["publishStatus", n.publishStatus],
       ["aiConfidence", n.aiConfidence],
       ["sourcePolicy", n.sourcePolicy],
+      ["คำเตือนก่อนเผยแพร่", Array.isArray(n.aiValidation?.publishWarnings) && n.aiValidation.publishWarnings.length
+        ? n.aiValidation.publishWarnings.join(" • ")
+        : "ไม่มีคำเตือน"],
+      ["pipelineNote", n.pipelineNote || "-"],
       ["createdAt", h.formatBangkok(n.createdAt, { prefix: "" })],
       ["publishedAt", n.publishedAt ? h.formatBangkok(n.publishedAt, { prefix: "" }) : "-"],
     ];
@@ -1430,7 +1735,14 @@
     if (status === 200) {
       overlay.remove();
       reviewState = null;
-      state.notice = { type: "success", msg: "บันทึกการตรวจทานแล้ว — สถานะเป็น validated/ready" };
+      const warningCount = Array.isArray(payload.publishWarnings) ? payload.publishWarnings.length : 0;
+      state.notice = {
+        type: warningCount ? "info" : "success",
+        msg: payload.publishStatus === "published"
+          ? `บันทึกการแก้ไขแล้ว — ข่าวยังเผยแพร่อยู่${warningCount ? ` · มีคำเตือน ${warningCount} จุด` : ""}`
+          : `บันทึกการตรวจทานแล้ว — สถานะเป็น validated/ready${warningCount ? ` · มีคำเตือน ${warningCount} จุด` : ""}`,
+      };
+      showToast(state.notice.type, state.notice.msg);
       await loadAllAndRender();
     } else if (status === 401) {
       overlay.remove();
@@ -1712,10 +2024,9 @@
   function startAutoRefresh() {
     stopAutoRefresh();
     state.refreshTimer = setInterval(() => {
-      if (state.authenticated) {
+      if (state.authenticated && !state.activeOperation) {
         void (async () => {
-          await loadStatus();
-          await loadCounts();
+          await Promise.all([loadStatus(), loadCounts(), loadNews()]);
           // ไม่ re-render ระหว่าง user interaction — เฉพาะเมื่อไม่มี modal เปิดอยู่
           if (!document.querySelector(".admin-confirm-overlay")) {
             renderDashboard();

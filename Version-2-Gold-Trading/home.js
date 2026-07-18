@@ -100,18 +100,16 @@
   }
 
   function calendarPanel() {
-    const rows = [
-      ["08:30", "USD", "Non-Farm Payrolls", 3, "190K", "175K"],
-      ["08:30", "USD", "Average Hourly Earnings", 2, "0.3%", "0.4%"],
-      ["10:00", "USD", "ISM Services PMI", 2, "52.0", "49.4"],
-      ["14:00", "GBP", "BoE Governor Speech", 1, "–", "–"],
-      ["19:30", "USD", "FOMC Member Speech", 2, "–", "–"],
-    ];
+    // ห้าม hardcode เหตุการณ์เศรษฐกิจจำลอง — แสดง skeleton ขณะรอข้อมูลจริงจาก API
+    // (hydrateLiveCalendar จะแทนที่ด้วยเหตุการณ์ล่วงหน้าจริง หรือ empty-state ที่ซื่อสัตย์)
+    const skeletonRows = Array.from({ length: 4 }, () =>
+      `<div class="v2-calendar-row v2-calendar-row--skeleton"><span class="skeleton" style="height:12px;width:40px"></span><span class="v2-event"><span class="skeleton" style="height:12px;width:70%"></span></span><span class="skeleton" style="height:12px;width:36px"></span><span class="skeleton" style="height:12px;width:40px"></span><span class="skeleton" style="height:12px;width:40px"></span></div>`
+    ).join("");
     return `<article class="v2-panel v2-calendar-panel">
       <header class="v2-panel-head"><h2>ปฏิทินเศรษฐกิจ</h2><a href="calendar.html">ดูทั้งหมด →</a></header>
       <div class="v2-calendar-head"><span>เวลา</span><span>เหตุการณ์</span><span>ความสำคัญ</span><span>คาดการณ์</span><span>ก่อนหน้า</span></div>
-      <div class="v2-calendar-body" id="homeCalendarList">${rows.map((row) => `<div class="v2-calendar-row"><span>${row[0]}</span><span class="v2-event"><img class="v2-mini-flag" src="${currencyFlagSrc(row[1])}" alt="ธง ${row[1]}" width="24" height="16"><small>${row[1]}</small>${row[2]}</span><span class="v2-impact" aria-label="ความสำคัญ ${row[3]} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < row[3] ? "is-on" : ""}"></i>`).join("")}</span><span>${row[4]}</span><span>${row[5]}</span></div>`).join("")}</div>
-      <footer class="v2-calendar-foot" id="homeCalendarStatus"><span>กำลังโหลดปฏิทินล่าสุด…</span><span>เชื่อมต่อข้อมูลจริง <i></i></span></footer>
+      <div class="v2-calendar-body" id="homeCalendarList">${skeletonRows}</div>
+      <footer class="v2-calendar-foot" id="homeCalendarStatus"><span>กำลังโหลดปฏิทินล่าสุด…</span><span>แหล่งข้อมูล Forex Factory <i></i></span></footer>
     </article>`;
   }
 
@@ -157,18 +155,30 @@
     const envelope = await TT.CalendarService.fetchUpcoming({ limit: 5 });
     const items = envelope.items || [];
     if (!items.length) {
-      el.innerHTML = `<div class="state"><div class="state__title">ยังไม่มีเหตุการณ์ที่กำลังจะมาถึง</div><a href="calendar.html" class="btn btn--ghost btn--sm">ดูปฏิทินทั้งหมด</a></div>`;
+      // แยก "ยังไม่มีเหตุการณ์ล่วงหน้า" ออกจาก "ดึงข้อมูลไม่สำเร็จ" เพื่อความซื่อสัตย์
+      // ทั้งสองกรณี CTA เป็น calendar.html เปล่า ๆ (ห้ามใช้ hash ที่ไม่มี anchor จริง)
+      const title = envelope.error
+        ? "ไม่สามารถโหลดเหตุการณ์ล่วงหน้าได้ในขณะนี้"
+        : "ยังไม่มีเหตุการณ์ที่กำลังจะมาถึง";
+      const sub = envelope.error
+        ? "กรุณาลองใหม่ภายหลัง หรือดูปฏิทินทั้งหมด"
+        : "เมื่อมีเหตุการณ์ใหม่จะแสดงที่นี่";
+      el.innerHTML = `<div class="state"><div class="state__title">${h.esc(title)}</div><span class="text-muted" style="display:block;margin-bottom:10px">${h.esc(sub)}</span><a href="calendar.html" class="btn btn--ghost btn--sm">ดูปฏิทินทั้งหมด</a></div>`;
     } else {
+      // ลิงก์แต่ละแถวไป calendar.html เปล่า ๆ — ห้ามใช้ hash ที่ไม่ตรงกับ anchor ใด ๆ
+      // (calendar.html ไม่ได้อ่าน hash อยู่แล้ว จึงเป็น hash ที่ไม่มีผลและอ่านเป็น "broken")
       el.innerHTML = items.map((item) => {
         const level = impactLevel(item.impact);
         const time = String(item.scheduledAtBangkok || "").slice(11, 16) || "—";
         const currency = String(item.currency || item.country || "—").toUpperCase();
-        return `<a class="v2-calendar-row" href="calendar.html#${encodeURIComponent(item.id || "upcoming")}"><span>${h.esc(time)}</span><span class="v2-event"><img class="v2-mini-flag" src="${currencyFlagSrc(currency)}" alt="ธง ${h.esc(currency)}" width="24" height="16" loading="lazy"><small>${h.esc(currency)}</small>${h.esc(h.truncate(item.eventName || "", 28))}</span><span class="v2-impact" aria-label="ความสำคัญ ${level} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < level ? "is-on" : ""}"></i>`).join("")}</span><span>${h.esc(item.forecast || "—")}</span><span>${h.esc(item.previous || "—")}</span></a>`;
+        return `<a class="v2-calendar-row" href="calendar.html"><span>${h.esc(time)}</span><span class="v2-event"><img class="v2-mini-flag" src="${currencyFlagSrc(currency)}" alt="ธง ${h.esc(currency)}" width="24" height="16" loading="lazy"><small>${h.esc(currency)}</small>${h.esc(h.truncate(item.eventName || "", 28))}</span><span class="v2-impact" aria-label="ความสำคัญ ${level} ระดับ">${[0, 1, 2].map((dot) => `<i class="${dot < level ? "is-on" : ""}"></i>`).join("")}</span><span>${h.esc(item.forecast || "—")}</span><span>${h.esc(item.previous || "—")}</span></a>`;
       }).join("");
     }
     if (status) {
       const updated = envelope.updatedAt ? new Date(envelope.updatedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "—";
-      status.innerHTML = `<span>อัปเดตล่าสุด ${updated} น. (GMT+7)</span><span>${envelope.stale ? "ข้อมูลล่าสุดที่มี" : "อัปเดตอัตโนมัติ"} <i></i></span>`;
+      // บอกแหล่งข้อมูล + เวลาอัปเดตอย่างชัดเจน (stale หรือ error ก็บอกตามตรง)
+      const state = envelope.error ? "ไม่สามารถอัปเดตได้" : envelope.stale ? "ข้อมูลล่าสุดที่มี" : "อัปเดตอัตโนมัติ";
+      status.innerHTML = `<span>อัปเดตล่าสุด ${updated} น. (GMT+7) · แหล่งข้อมูล Forex Factory</span><span>${state} <i></i></span>`;
     }
   }
 

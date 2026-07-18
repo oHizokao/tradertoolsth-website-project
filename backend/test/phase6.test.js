@@ -13,7 +13,9 @@ import { createNewsScheduler } from "../src/scheduler/newsScheduler.js";
 import { resolve } from "node:path";
 
 function sampleNews(overrides = {}) {
-  const now = "2026-07-15T08:00:00.000Z";
+  // Keep this fixture inside the configured freshness window. A fixed historical
+  // timestamp would eventually trip the real `news_too_old` safety gate.
+  const now = new Date().toISOString();
   return {
     id: "gold-fed-001",
     source: "Kitco News",

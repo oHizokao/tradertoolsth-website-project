@@ -1,0 +1,4 @@
+interface:
+  display_name: "Portable Tech Lead Orchestrator"
+  short_description: "Portable GLM delegation with autonomous QA loops"
+  default_prompt: "Use $tech-lead-orchestrator-portable to delegate this code change to GLM and verify it until QA passes."

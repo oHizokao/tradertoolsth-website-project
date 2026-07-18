@@ -197,6 +197,7 @@ test("Content Management UI Integration — full flow", async () => {
 
     // ดึงข่าวใหม่ต้องแสดงสถานะระหว่างทำงานและสรุปใหม่/ซ้ำ/รอตรวจ/ล้มเหลวเมื่อจบ
     const realAdminFetch = W.fetch;
+    let newsListReadsAfterFetch = 0;
     W.fetch = async (url, init = {}) => {
       if (String(url).endsWith("/api/admin/run")) {
         await wait(40);
@@ -210,6 +211,7 @@ test("Content Management UI Integration — full flow", async () => {
           failed: 0,
         }), { status: 200, headers: { "content-type": "application/json" } });
       }
+      if (String(url).includes("/api/admin/news?")) newsListReadsAfterFetch += 1;
       return realAdminFetch(url, init);
     };
     const fetchNewsBtn = W.document.getElementById("adminFetchBtn");
@@ -224,6 +226,9 @@ test("Content Management UI Integration — full flow", async () => {
     assert.match(fetchResultText, /รอตรวจ 1/);
     assert.match(fetchResultText, /ล้มเหลว 0/);
     assert.ok(W.document.getElementById("adminFetchBtn")?.disabled === false, "fetch news button must re-enable after completion");
+    assert.ok(newsListReadsAfterFetch >= 1, "หลัง pipeline จบต้องโหลดรายการข่าวใหม่อัตโนมัติ");
+    assert.match(W.document.getElementById("adminToastRegion")?.textContent || "", /เสร็จแล้ว/,
+      "ต้องมี toast notification แจ้งผลการดึงข่าว");
     W.fetch = realAdminFetch;
     assert.ok(dashboard, "dashboard ต้อง render หลัง login (cookie session ถูกตรวจสำเร็จ)");
 

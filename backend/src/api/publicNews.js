@@ -15,11 +15,16 @@ export function publicCategory(news) {
 }
 
 function bodyBlocks(news) {
-  const content = Array.isArray(news.thaiContent)
+  let content = Array.isArray(news.thaiContent)
     ? news.thaiContent
     : text(news.thaiContent)
       ? [news.thaiContent]
       : [];
+  // Auto Pilot soft-gate: ถ้า rewrite ล้มเหลวแต่ต้นฉบับยังอ่านได้
+  // ให้เผยแพร่ต้นฉบับพร้อมคำเตือนฝั่ง Admin แทนหน้าข่าวว่าง
+  if (!content.some((part) => text(typeof part === "string" ? part : part?.text))) {
+    content = text(news.originalContent) ? [news.originalContent] : [];
+  }
   return content
     .map((part) => (typeof part === "string" ? part : part?.text))
     .map(text)

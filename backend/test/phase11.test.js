@@ -276,7 +276,7 @@ test("6. reject → validationStatus + publishStatus = rejected", async () => {
   }
 });
 
-/* ---------- 7. publish: ผ่าน gate → published; ไม่ผ่าน → 409 ---------- */
+/* ---------- 7. publish: quality gate เป็นคำเตือน ไม่บล็อก ---------- */
 test("7a. publish: ผ่าน safety gate → 200 published", async () => {
   const s = await makeServer();
   try {
@@ -291,15 +291,18 @@ test("7a. publish: ผ่าน safety gate → 200 published", async () => {
   }
 });
 
-test("7b. publish: ไม่ผ่าน gate (missing sourcePublishedAt) → 409", async () => {
+test("7b. publish: missing sourcePublishedAt → 200 พร้อมคำเตือน", async () => {
   const s = await makeServer();
   try {
     s.repo.insertNews(samplePublishable({ id: "p2", duplicateHash: "p2", sourceUrl: "https://k.com/p2", publishStatus: "ready", sourcePublishedAt: null }));
     const cookie = await login(s);
     const r = await req(s.base, "POST", NEWS + "/p2/publish", { cookie, origin: s.base, body: {} });
-    assert.equal(r.status, 409);
-    assert.equal(r.payload.error, "publish_guard_rejected");
-    assert.notEqual(s.repo.getById("p2").publishStatus, "published");
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.publishStatus, "published");
+    assert.ok(r.payload.publishWarnings.some((warning) => warning.includes("sourcePublishedAt")));
+    const after = s.repo.getById("p2");
+    assert.equal(after.publishStatus, "published");
+    assert.equal(after.validationStatus, "validated");
   } finally {
     await s.close();
   }
@@ -341,8 +344,8 @@ test("9. review: sourceChecked false → 400 source_check_and_reviewer_required"
   }
 });
 
-/* ---------- 10. review: unexpected number → 409 ---------- */
-test("10. review: unexpected number → 409 deterministic_quality_gate", async () => {
+/* ---------- 10. review: unexpected number → บันทึกได้พร้อม warning ---------- */
+test("10. review: unexpected number → 200 พร้อมคำเตือน", async () => {
   const s = await makeServer();
   try {
     s.repo.insertNews(samplePublishable({ id: "rev3", duplicateHash: "rev3", sourceUrl: "https://k.com/rev3" }));
@@ -362,11 +365,11 @@ test("10. review: unexpected number → 409 deterministic_quality_gate", async (
         },
       },
     });
-    assert.equal(r.status, 409);
-    assert.equal(r.payload.error, "deterministic_quality_gate");
+    assert.equal(r.status, 200);
     assert.ok(r.payload.localCheck, "ต้องส่ง localCheck กลับมา");
     assert.equal(r.payload.localCheck.canAutoValidate, false);
     assert.equal(r.payload.localCheck.hasUnexpectedNumbers, true);
+    assert.ok(r.payload.publishWarnings.some((warning) => warning.includes("unexpected_numbers")));
   } finally {
     await s.close();
   }
@@ -399,6 +402,38 @@ test("11. review: clean rewrite → 200 validated/ready", async () => {
     const after = s.repo.getById("rev4");
     assert.equal(after.validationStatus, "validated");
     assert.equal(after.publishStatus, "ready");
+  } finally {
+    await s.close();
+  }
+});
+
+test("11b. review: แก้ข่าว published แล้วต้องคงสถานะ published", async () => {
+  const s = await makeServer();
+  try {
+    s.repo.insertNews(samplePublishable({ id: "rev-pub", duplicateHash: "rev-pub", sourceUrl: "https://k.com/rev-pub" }));
+    assert.equal(s.repo.updatePublishStatus("rev-pub", "published"), true);
+    const publishedAtBefore = s.repo.getById("rev-pub").publishedAt;
+    const cookie = await login(s);
+    const r = await req(s.base, "POST", NEWS + "/rev-pub/review", {
+      cookie,
+      origin: s.base,
+      body: {
+        sourceChecked: true,
+        reviewer: "tester",
+        news: {
+          thaiTitle: "หัวข้อที่แก้ไขหลังเผยแพร่",
+          thaiSummary: "สรุปที่แก้ไข",
+          thaiContent: ["เนื้อหาที่แก้ไขหลังเผยแพร่"],
+          keyFacts: [],
+        },
+      },
+    });
+    assert.equal(r.status, 200);
+    assert.equal(r.payload.publishStatus, "published");
+    const after = s.repo.getById("rev-pub");
+    assert.equal(after.publishStatus, "published");
+    assert.equal(after.thaiTitle, "หัวข้อที่แก้ไขหลังเผยแพร่");
+    assert.equal(after.publishedAt, publishedAtBefore, "แก้เนื้อหาแล้วต้องไม่เปลี่ยนเวลา publish เดิม");
   } finally {
     await s.close();
   }

@@ -27,6 +27,8 @@ backend/storage/
 backend/storage/**
 backend/tmp/
 backend/tmp/**
+tmp/
+tmp/**
 *.db
 *.sqlite
 *.sqlite3

@@ -386,12 +386,6 @@ body.nav-open .nav-toggle span::after {
   }
 }
 
-@media (max-width: 480px) {
-  .nav-actions .nav-icon-btn[aria-label="ค้นหา"] {
-    display: none;
-  }
-}
-
 /* ============================================================
    FOOTER — Navy เรียบ
    ============================================================ */
